@@ -25,7 +25,7 @@ function usageWindow(used: number, resetsInHours: number, windowSeconds: number)
   const elapsedPercent = Math.min(100, Math.max(0, ((now - start) / (windowSeconds * 1000)) * 100));
   // Rust(model.rs)와 같은 계산: 이 속도면 언제 다 쓰는지, 하루에 얼마씩 쓸 수 있는지
   const runsOut = elapsedPercent >= 3 && used * 0.98 > elapsedPercent && used < 100;
-  const daysLeft = Math.max(1, (resetsInHours * HOUR) / (24 * HOUR));
+  const daysLeft = resetsInHours / 24;
   return {
     usedPercent: used,
     resetsAt: new Date(resetsAt).toISOString(),
@@ -33,7 +33,7 @@ function usageWindow(used: number, resetsInHours: number, windowSeconds: number)
     elapsedPercent,
     aheadOfPace: used >= elapsedPercent + 5,
     runsOutAt: runsOut ? new Date(start + ((now - start) * 100) / used).toISOString() : null,
-    dailyBudgetPercent: (100 - used) / daysLeft,
+    dailyBudgetPercent: daysLeft >= 1 ? (100 - used) / daysLeft : null,
     usedTodayPercent: windowSeconds === WEEK_SECONDS ? Math.round(used * 0.15) : null,
   };
 }
@@ -79,7 +79,8 @@ function recentTrend(
 export function mockSnapshot(): Snapshot {
   const personalWeekly = usageWindow(58, 74, WEEK_SECONDS);
   const workWeekly = usageWindow(41, 129, WEEK_SECONDS);
-  const codexWeekly = usageWindow(55, 28, WEEK_SECONDS);
+  // 리셋까지 하루가 안 남은 경우도 미리보기에서 보이게 18시간으로 둔다
+  const codexWeekly = usageWindow(55, 18, WEEK_SECONDS);
 
   const accounts: AccountUsage[] = [
     {

@@ -6,6 +6,7 @@ import {
   formatHours,
   formatMoney,
   formatPercent,
+  formatApproxTime,
   formatResetTime,
   formatShare,
   formatUsd,
@@ -259,29 +260,31 @@ function UsageRow({
 }
 
 /**
- * 한도 아래의 예측 한 줄.
- * - 이 속도면 리셋 전에 바닥날 때: 언제쯤 다 쓰는지 (주간이면 하루 몫도)
- * - 그렇지 않은 주간 한도: 오늘 쓴 양과, 리셋까지 버티는 하루 몫
+ * 한도 아래의 예측.
+ * - 이 속도면 리셋 전에 바닥날 때: 언제쯤 다 쓰는지 한 줄 (페이스보다 5%p 넘게 앞서면 빨강)
+ * - 주간 한도: 오늘 쓴 양과 하루 몫. 여유가 있으면 "하루 N%씩 쓸 수 있어요",
+ *   바닥날 속도면 "하루 N%씩으로 줄이면 리셋까지 가요". 리셋까지 하루가 안 남았으면 하루 몫은 없다.
  */
 function Forecast({ window, weekly, now }: { window: UsageWindow; weekly: boolean; now: number }) {
   if (window.usedPercent >= 100) return null;
-  const budget = window.dailyBudgetPercent;
+  const runsOut = window.runsOutAt !== null;
+  const budget = weekly ? window.dailyBudgetPercent : null;
+  const parts = [
+    weekly && window.usedTodayPercent !== null
+      ? t("usedToday", { today: formatShare(window.usedTodayPercent) })
+      : null,
+    budget !== null ? t(runsOut ? "forecastSlowDown" : "forecastRoom", { budget: formatShare(budget) }) : null,
+  ].filter((part): part is string => part !== null);
 
-  if (window.runsOutAt) {
-    return (
-      <div className={`usage-forecast${window.aheadOfPace ? " warn-text" : ""}`}>
-        {t("forecastRunsOut", { time: formatResetTime(window.runsOutAt, now) })}
-        {weekly && budget !== null && ` · ${t("forecastSlowDown", { budget: formatShare(budget) })}`}
-      </div>
-    );
-  }
-  if (!weekly || budget === null) return null;
   return (
-    <div className="usage-forecast">
-      {window.usedTodayPercent !== null
-        ? t("forecastBudgetToday", { today: formatShare(window.usedTodayPercent), budget: formatShare(budget) })
-        : t("forecastBudget", { budget: formatShare(budget) })}
-    </div>
+    <>
+      {window.runsOutAt && (
+        <div className={`usage-forecast${window.aheadOfPace ? " warn-text" : ""}`}>
+          {t("forecastRunsOut", { time: formatApproxTime(window.runsOutAt, now) })}
+        </div>
+      )}
+      {parts.length > 0 && <div className="usage-forecast">{parts.join(" · ")}</div>}
+    </>
   );
 }
 

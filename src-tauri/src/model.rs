@@ -61,7 +61,8 @@ pub struct UsageWindow {
     pub ahead_of_pace: bool,
     /// (계산값) 이 주기의 지금까지 평균 속도로 가면 한도를 다 쓰는 시각. 리셋 전에 바닥날 때만 있다.
     pub runs_out_at: Option<DateTime<Utc>>,
-    /// (계산값) 리셋까지 버티려면 하루에 쓸 수 있는 양 (%). 남은 양 ÷ 남은 일수 (하루가 안 남았으면 남은 양 전부).
+    /// (계산값) 리셋까지 버티려면 하루에 쓸 수 있는 양 (%): 남은 양 ÷ 남은 일수.
+    /// 리셋까지 하루가 안 남았으면 `None` ("하루에 얼마씩"이라는 말이 성립하지 않는다).
     pub daily_budget_percent: Option<f64>,
     /// 오늘(내 시간대 자정 이후) 쓴 양 (%). 기록에서 계산해 따로 채운다. 모르면 `None`.
     pub used_today_percent: Option<f64>,
@@ -103,13 +104,10 @@ impl UsageWindow {
             }
             _ => None,
         };
-        // 하루 몫: 남은 양을 남은 일수로 나눈다.
+        // 하루 몫: 남은 양을 남은 일수로 나눈다. 하루가 안 남았으면 계산하지 않는다.
         let daily_budget_percent = resets_at.and_then(|resets_at| {
-            let seconds_left = (resets_at - now).num_seconds() as f64;
-            (seconds_left > 0.0).then(|| {
-                let days_left = (seconds_left / 86_400.0).max(1.0);
-                (100.0 - used_percent) / days_left
-            })
+            let days_left = (resets_at - now).num_seconds() as f64 / 86_400.0;
+            (days_left >= 1.0).then(|| (100.0 - used_percent) / days_left)
         });
 
         UsageWindow {
@@ -316,9 +314,9 @@ mod tests {
         // 주기 초반(3% 미만 경과)에는 예측하지 않는다
         let early = UsageWindow::new(5.0, Some(now + Duration::seconds(600_000)), 604_800, now);
         assert_eq!(early.runs_out_at, None);
-        // 하루가 안 남았으면 남은 양 전부가 하루 몫
-        let last_day = UsageWindow::new(80.0, Some(now + Duration::hours(6)), 604_800, now);
-        assert!((last_day.daily_budget_percent.unwrap() - 20.0).abs() < 0.01);
+        // 리셋까지 하루가 안 남았으면 하루 몫은 없다
+        let last_day = UsageWindow::new(80.0, Some(now + Duration::hours(18)), 604_800, now);
+        assert_eq!(last_day.daily_budget_percent, None);
     }
 
     #[test]

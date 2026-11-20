@@ -54,9 +54,12 @@ const strings = {
     left: "{duration} 남음",
     aheadOfPace: "빠르게 쓰는 중",
     forecastRunsOut: "이 속도면 {time}쯤 다 써요",
-    forecastBudgetToday: "오늘 {today}% 씀 · 하루 {budget}%씩이면 리셋까지 가요",
-    forecastBudget: "하루 {budget}%씩이면 리셋까지 가요",
-    forecastSlowDown: "하루 {budget}%까지",
+    forecastRoom: "리셋까지 하루 {budget}%씩 쓸 수 있어요",
+    forecastSlowDown: "하루 {budget}%씩으로 줄이면 리셋까지 가요",
+    usedToday: "오늘 {today}% 씀",
+    todayAt: "오늘 {time}",
+    tomorrowAt: "내일 {time}",
+    weekdayAt: "{day} {time}",
     limitAlert: "한도 알림",
     limitAlertOff: "끔",
     limitAlertUsed: "{n}% 사용",
@@ -199,9 +202,12 @@ const strings = {
     left: "{duration} left",
     aheadOfPace: "Ahead of pace",
     forecastRunsOut: "At this pace it runs out around {time}",
-    forecastBudgetToday: "Used {today}% today · {budget}% a day lasts until reset",
-    forecastBudget: "{budget}% a day lasts until reset",
-    forecastSlowDown: "up to {budget}% a day",
+    forecastRoom: "{budget}% a day lasts until reset",
+    forecastSlowDown: "slow to {budget}% a day to last until reset",
+    usedToday: "Used {today}% today",
+    todayAt: "{time} today",
+    tomorrowAt: "{time} tomorrow",
+    weekdayAt: "{time} on {day}",
     limitAlert: "Limit alerts",
     limitAlertOff: "Off",
     limitAlertUsed: "{n}% used",
@@ -360,10 +366,28 @@ export function formatApproxUsd(amount: number): string {
   return t("approxUsd", { amount: usdWhole.format(amount) });
 }
 
-/** 퍼센트 몫: 10 미만은 소수 한 자리까지 (예: 8.6), 그 이상은 정수 */
+/** 퍼센트 몫: 5 이상은 정수로, 그보다 작으면 소수 한 자리까지 (예: 2.3) */
 export function formatShare(percent: number): string {
-  if (percent >= 10) return String(Math.round(percent));
+  if (percent >= 5) return String(Math.round(percent));
   return String(Math.round(percent * 10) / 10);
+}
+
+const hourOnly = new Intl.DateTimeFormat(locale, { hour: "numeric" });
+const weekdayLong = new Intl.DateTimeFormat(locale, { weekday: "long" });
+/**
+ * 어림 시각. 추정값이라 분까지 적지 않고 가까운 정시로 맞추고,
+ * 날짜는 "오늘 / 내일 / 요일"로 적는다 (예: "월요일 오전 1시").
+ */
+export function formatApproxTime(iso: string, now: number): string {
+  const at = new Date(iso);
+  at.setMinutes(at.getMinutes() >= 30 ? 60 : 0, 0, 0);
+  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((startOfDay(at) - startOfDay(new Date(now))) / 86_400_000);
+  const time = hourOnly.format(at);
+  if (days <= 0) return t("todayAt", { time });
+  if (days === 1) return t("tomorrowAt", { time });
+  if (days < 7) return t("weekdayAt", { day: weekdayLong.format(at), time });
+  return `${shortDate.format(at)} ${time}`;
 }
 
 export function formatMoney(amount: number, currency: string): string {
