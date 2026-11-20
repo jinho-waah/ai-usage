@@ -53,10 +53,7 @@ const strings = {
     resets: "리셋 {time}",
     left: "{duration} 남음",
     aheadOfPace: "빠르게 쓰는 중",
-    forecastRunsOut: "이 속도면 {time}쯤 다 써요",
-    forecastRoom: "리셋까지 하루 {budget}%씩 쓸 수 있어요",
-    forecastSlowDown: "하루 {budget}%씩으로 줄이면 리셋까지 가요",
-    usedToday: "오늘 {today}% 씀",
+    forecastRunsOut: "이 속도면 {time}쯤 소진 예정",
     todayAt: "오늘 {time}",
     tomorrowAt: "내일 {time}",
     weekdayAt: "{day} {time}",
@@ -202,9 +199,6 @@ const strings = {
     left: "{duration} left",
     aheadOfPace: "Ahead of pace",
     forecastRunsOut: "At this pace it runs out around {time}",
-    forecastRoom: "{budget}% a day lasts until reset",
-    forecastSlowDown: "slow to {budget}% a day to last until reset",
-    usedToday: "Used {today}% today",
     todayAt: "{time} today",
     tomorrowAt: "{time} tomorrow",
     weekdayAt: "{time} on {day}",
@@ -364,12 +358,6 @@ const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 /** 어림 금액 (예: "약 $1,284") */
 export function formatApproxUsd(amount: number): string {
   return t("approxUsd", { amount: usdWhole.format(amount) });
-}
-
-/** 퍼센트 몫: 5 이상은 정수로, 그보다 작으면 소수 한 자리까지 (예: 2.3) */
-export function formatShare(percent: number): string {
-  if (percent >= 5) return String(Math.round(percent));
-  return String(Math.round(percent * 10) / 10);
 }
 
 const hourOnly = new Intl.DateTimeFormat(locale, { hour: "numeric" });

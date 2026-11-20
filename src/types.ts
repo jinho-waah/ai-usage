@@ -23,10 +23,6 @@ export interface UsageWindow {
   aheadOfPace: boolean;
   /** 이 속도면 한도를 다 쓰는 시각. 리셋 전에 바닥날 때만 있다 */
   runsOutAt: string | null;
-  /** 리셋까지 버티려면 하루에 쓸 수 있는 양 (%) */
-  dailyBudgetPercent: number | null;
-  /** 오늘 쓴 양 (%). 주간 한도에만 있고, 모르면 null */
-  usedTodayPercent: number | null;
 }
 
 export interface ModelUsage {

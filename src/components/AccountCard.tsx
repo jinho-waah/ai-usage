@@ -8,7 +8,6 @@ import {
   formatPercent,
   formatApproxTime,
   formatResetTime,
-  formatShare,
   formatUsd,
   t,
 } from "../i18n";
@@ -63,7 +62,6 @@ export function AccountCard({ account, percentMode, now, onSignIn }: AccountCard
           window={account.weekly}
           value={shown(account.weekly.usedPercent)}
           marker={marker(account.weekly.elapsedPercent)}
-          weekly
           now={now}
         />
       )}
@@ -220,7 +218,6 @@ function UsageRow({
   window,
   value,
   marker,
-  weekly = false,
   now,
 }: {
   title: string;
@@ -229,8 +226,6 @@ function UsageRow({
   value: number;
   /** 시간 눈금 위치 (지난 시간 또는 남은 시간). 없으면 눈금 없음 */
   marker: number | undefined;
-  /** 주간 한도인지 (하루 몫 예측은 주간에만 보여 준다) */
-  weekly?: boolean;
   now: number;
 }) {
   return (
@@ -254,37 +249,21 @@ function UsageRow({
           <span className="warn-text"> · {t("aheadOfPace")}</span>
         )}
       </div>
-      <Forecast window={window} weekly={weekly} now={now} />
+      <Forecast window={window} now={now} />
     </div>
   );
 }
 
 /**
- * 한도 아래의 예측.
- * - 이 속도면 리셋 전에 바닥날 때: 언제쯤 다 쓰는지 한 줄 (페이스보다 5%p 넘게 앞서면 빨강)
- * - 주간 한도: 오늘 쓴 양과 하루 몫. 여유가 있으면 "하루 N%씩 쓸 수 있어요",
- *   바닥날 속도면 "하루 N%씩으로 줄이면 리셋까지 가요". 리셋까지 하루가 안 남았으면 하루 몫은 없다.
+ * 한도 아래의 예측 한 줄: 이 속도면 리셋 전에 바닥날 때만, 언제쯤 다 쓰는지 알려 준다.
+ * 페이스보다 5%p 넘게 앞서면 빨강. 여유가 있으면 아무것도 띄우지 않는다.
  */
-function Forecast({ window, weekly, now }: { window: UsageWindow; weekly: boolean; now: number }) {
-  if (window.usedPercent >= 100) return null;
-  const runsOut = window.runsOutAt !== null;
-  const budget = weekly ? window.dailyBudgetPercent : null;
-  const parts = [
-    weekly && window.usedTodayPercent !== null
-      ? t("usedToday", { today: formatShare(window.usedTodayPercent) })
-      : null,
-    budget !== null ? t(runsOut ? "forecastSlowDown" : "forecastRoom", { budget: formatShare(budget) }) : null,
-  ].filter((part): part is string => part !== null);
-
+function Forecast({ window, now }: { window: UsageWindow; now: number }) {
+  if (!window.runsOutAt || window.usedPercent >= 100) return null;
   return (
-    <>
-      {window.runsOutAt && (
-        <div className={`usage-forecast${window.aheadOfPace ? " warn-text" : ""}`}>
-          {t("forecastRunsOut", { time: formatApproxTime(window.runsOutAt, now) })}
-        </div>
-      )}
-      {parts.length > 0 && <div className="usage-forecast">{parts.join(" · ")}</div>}
-    </>
+    <div className={`usage-forecast${window.aheadOfPace ? " warn-text" : ""}`}>
+      {t("forecastRunsOut", { time: formatApproxTime(window.runsOutAt, now) })}
+    </div>
   );
 }
 

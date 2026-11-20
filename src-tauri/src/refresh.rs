@@ -73,8 +73,6 @@ pub struct CycleTrend {
     /// 가로축 시작과 끝 (최근 7일)
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
-    /// 오늘(내 시간대 자정 이후) 쓴 주간 한도 (%). 주간 한도가 없거나 기록이 없으면 `None`.
-    pub today_percent: Option<f64>,
 }
 
 /// 팝오버 미니 그래프: 최근 7일 동안 쓴 양(누적). 리셋 때 0% 로 떨어졌다가 다시 쌓이는 모양이 보인다.
@@ -111,60 +109,14 @@ fn trends(
                     now,
                 )
                 .unwrap_or_default();
-            let today_percent = match (window, live, local_midnight(now)) {
-                (WindowKind::Weekly, Some(live), Some(midnight)) => {
-                    used_since(&samples, midnight, live.percent)
-                }
-                _ => None,
-            };
             let trend = CycleTrend {
                 points: recent_points(&samples, window, live, from, now),
                 start: Some(from),
                 end: Some(now),
-                today_percent,
             };
             (account.id.clone(), trend)
         })
         .collect()
-}
-
-/// 내 시간대의 오늘 자정 (UTC 로)
-fn local_midnight(now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    now.with_timezone(&chrono::Local)
-        .date_naive()
-        .and_hms_opt(0, 0, 0)?
-        .and_local_timezone(chrono::Local)
-        .earliest()
-        .map(|midnight| midnight.with_timezone(&Utc))
-}
-
-/// `since` 이후에 쓴 양 (%). 기록에서 오른 만큼을 더한다.
-/// 값이 떨어지면 리셋된 것이므로, 그 뒤 값은 새 주기에서 쓴 양으로 더한다.
-/// `since` 앞의 기록이 없으면 그 뒤 첫 기록을 출발점으로 삼는다 (그 전에 쓴 양은 모른다).
-pub fn used_since(
-    samples: &[crate::history::Sample],
-    since: DateTime<Utc>,
-    current_percent: f64,
-) -> Option<f64> {
-    let before = samples.iter().rfind(|sample| sample.at < since);
-    let mut after = samples
-        .iter()
-        .filter(|sample| sample.at >= since)
-        .map(|sample| sample.used_percent);
-    let mut previous = match before {
-        Some(sample) => sample.used_percent,
-        None => after.next()?,
-    };
-    let mut total = 0.0;
-    for value in after.chain(std::iter::once(current_percent)) {
-        total += if value >= previous {
-            value - previous
-        } else {
-            value
-        };
-        previous = value;
-    }
-    Some(total)
 }
 
 /// 최근 기간(`from` ~ 지금)의 그래프 점.
@@ -326,12 +278,7 @@ pub fn build_snapshot(
                 color: account.color.clone(),
                 plan: data.plan.clone().or_else(|| account.plan.clone()),
                 weekly: usage.weekly.map(|window| {
-                    let mut weekly =
-                        UsageWindow::new(window.percent, window.resets_at, WEEK_SECONDS, now);
-                    weekly.used_today_percent = trends
-                        .get(&account.id)
-                        .and_then(|trend| trend.today_percent);
-                    weekly
+                    UsageWindow::new(window.percent, window.resets_at, WEEK_SECONDS, now)
                 }),
                 session: usage.session.map(|window| {
                     UsageWindow::new(window.percent, window.resets_at, SESSION_SECONDS, now)
@@ -630,26 +577,6 @@ mod tests {
         assert_eq!(values, vec![70.0, 98.0, 0.0, 20.0, 35.0, 41.0]);
         assert_eq!(points[2].at, reset);
         assert_eq!(points.last().unwrap().at, now);
-    }
-
-    #[test]
-    fn used_today_adds_increases_and_handles_a_reset() {
-        use crate::history::Sample;
-        let now = Utc::now();
-        let midnight = now - Duration::hours(10);
-        let sample = |hours_ago: i64, percent: f64| Sample {
-            at: now - Duration::hours(hours_ago),
-            used_percent: percent,
-            resets_at: None,
-        };
-        // 자정 전 90% → 오늘 95% 까지 쓰고(+5), 리셋 뒤 8% 까지 쓰고(+8), 지금 12% (+4)
-        let samples = [sample(12, 90.0), sample(8, 95.0), sample(5, 8.0)];
-        assert_eq!(used_since(&samples, midnight, 12.0), Some(17.0));
-        // 자정 전 기록이 없으면 오늘 첫 기록부터 센다
-        let samples = [sample(8, 30.0), sample(2, 36.0)];
-        assert_eq!(used_since(&samples, midnight, 36.0), Some(6.0));
-        // 기록이 하나도 없으면 모른다
-        assert_eq!(used_since(&[], midnight, 50.0), None);
     }
 
     #[test]
