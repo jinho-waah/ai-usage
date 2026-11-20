@@ -81,6 +81,12 @@ button:focus:not(:focus-visible) {
 
 .popover {
   height: 100vh;
+  /* 내용이 늘어난 직후, 창이 따라 커지기 전 잠깐은 넘친다. 그때 스크롤바가 깜빡이지 않게 평소엔 숨긴다 */
+  overflow: hidden;
+}
+
+/* 내용이 화면보다 길어서 창을 끝까지 늘리지 못했을 때만 스크롤 */
+.popover.scrollable {
   overflow-y: auto;
   overscroll-behavior: contain;
 }

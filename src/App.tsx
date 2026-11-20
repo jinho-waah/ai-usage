@@ -30,6 +30,8 @@ export default function App() {
   const [view, setView] = useState<"main" | "settings">("main");
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  /** 내용이 화면보다 길어서 창 안에서 스크롤해야 하는지 */
+  const [scrollable, setScrollable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   // 처음 데이터를 받고, Rust 가 보내는 갱신 알림을 구독한다.
@@ -76,11 +78,21 @@ export default function App() {
   }, []);
 
   // 내용 높이가 바뀔 때마다 팝오버 창 높이를 맞춘다.
+  // 내용이 먼저 늘고 창은 조금 뒤에 따라온다. 그 사이에 스크롤바가 떴다 사라지며 화면이 흔들리지 않게,
+  // 스크롤은 내용이 화면보다 길어서 창을 끝까지 늘리지 못했을 때만 켠다.
   useLayoutEffect(() => {
     const content = contentRef.current;
     if (!content) return;
+    let latest = 0;
     const observer = new ResizeObserver(() => {
-      resizePopover(Math.ceil(content.getBoundingClientRect().height));
+      const wanted = Math.ceil(content.getBoundingClientRect().height);
+      const request = ++latest;
+      resizePopover(wanted)
+        .then((applied) => applied < wanted)
+        .catch(() => true) // 창 크기를 못 바꿨으면 스크롤로라도 끝까지 볼 수 있게
+        .then((clipped) => {
+          if (request === latest) setScrollable(clipped);
+        });
     });
     observer.observe(content);
     return () => observer.disconnect();
@@ -102,7 +114,7 @@ export default function App() {
   };
 
   return (
-    <div className="popover">
+    <div className={scrollable ? "popover scrollable" : "popover"}>
       <div className="popover-content" ref={contentRef}>
         {snapshot && settings && view === "settings" && (
           <SettingsView

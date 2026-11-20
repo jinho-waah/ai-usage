@@ -89,9 +89,10 @@ pub fn hide(app: &AppHandle) {
 }
 
 /// 화면(React)이 내용 높이에 맞게 창 크기를 바꿔 달라고 할 때 부른다.
-pub fn resize(app: &AppHandle, content_height: f64) {
+/// 실제로 맞춘 높이를 돌려준다. 내용이 화면보다 길면 잘린 높이라서, 화면 쪽은 이때만 스크롤을 켠다.
+pub fn resize(app: &AppHandle, content_height: f64) -> f64 {
     let Some(window) = app.get_webview_window(LABEL) else {
-        return;
+        return content_height;
     };
     // 화면보다 길어지지 않게 자른다. 넘치는 내용은 화면(React) 쪽에서 스크롤한다.
     let max_height = window
@@ -117,6 +118,8 @@ pub fn resize(app: &AppHandle, content_height: f64) {
             place_below_tray(&window, tray_rect);
         }
     }
+
+    height
 }
 
 /// 창 위쪽 모서리를 그대로 두고 높이만 바꾼다 (한 번에, 메인 스레드에서).

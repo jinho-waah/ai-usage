@@ -200,9 +200,9 @@ export async function setSettings(settings: Settings): Promise<void> {
   }
 }
 
-/** 내용 높이에 맞게 팝오버 창 높이를 바꾼다. */
-export function resizePopover(height: number): Promise<void> {
-  return inApp ? invoke("resize_popover", { height }) : Promise.resolve();
+/** 내용 높이에 맞게 팝오버 창 높이를 바꾸고, 실제로 맞춘 높이를 돌려준다 (화면보다 길면 잘린 높이). */
+export function resizePopover(height: number): Promise<number> {
+  return inApp ? invoke<number>("resize_popover", { height }) : Promise.resolve(height);
 }
 
 export function hidePopover(): Promise<void> {

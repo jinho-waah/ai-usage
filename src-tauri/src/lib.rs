@@ -462,8 +462,8 @@ fn open_history(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn resize_popover(app: AppHandle, height: f64) {
-    popover::resize(&app, height);
+fn resize_popover(app: AppHandle, height: f64) -> f64 {
+    popover::resize(&app, height)
 }
 
 #[tauri::command]
