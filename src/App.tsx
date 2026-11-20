@@ -49,7 +49,10 @@ export default function App() {
         // 팝오버가 열릴 때 이전에 누른 버튼의 포커스 테두리가 남지 않게 한다.
         (document.activeElement as HTMLElement | null)?.blur();
         setNow(Date.now());
+        // 닫혀 있는 동안에는 Rust 가 갱신 알림을 보내지 않는다 (잠든 화면을 깨우지 않으려고).
+        // 그래서 열릴 때 최신 데이터를 직접 받아 온다.
         getSnapshot().then(setSnapshot);
+        getAccounts().then(setAccounts);
       }),
     ];
     return () => {

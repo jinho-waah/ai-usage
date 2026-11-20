@@ -32,6 +32,12 @@ pub struct MenubarModel {
     pub percent_mode: PercentMode,
 }
 
+/// 메뉴바에서 구분되지 않는 작은 차이는 버린다. 막대가 30pt 라서 0.5% 는 0.15pt 다.
+/// 값이 같으면 모델이 같아지고, 같은 그림을 다시 그리지 않아도 된다.
+fn round_half(percent: f64) -> f64 {
+    (percent * 2.0).round() / 2.0
+}
+
 impl MenubarModel {
     pub fn from_snapshot(snapshot: &Snapshot, settings: &Settings) -> Self {
         // `filter_map`: 각 계정을 메뉴바 항목으로 바꾸되, 사용량 정보가 없는 계정은 건너뛴다.
@@ -45,7 +51,7 @@ impl MenubarModel {
                     label_text: label_text(account),
                     color: parse_hex_color(&account.color),
                     used_percent: window.used_percent,
-                    elapsed_percent: window.elapsed_percent,
+                    elapsed_percent: window.elapsed_percent.map(round_half),
                     warn: window.ahead_of_pace,
                 })
             })

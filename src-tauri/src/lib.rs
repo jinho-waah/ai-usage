@@ -45,7 +45,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
+use tauri::{AppHandle, Manager, Window, WindowEvent};
 
 use crate::accounts::{Account, AccountEdit};
 use crate::history::{History, WindowKind};
@@ -90,7 +90,7 @@ fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     settings::save(&state.settings_path, &settings)?;
     *state.settings.lock().unwrap() = settings.clone();
     refresh::update_menubar(&app);
-    let _ = app.emit("settings-changed", &settings);
+    refresh::emit_to_popover(&app, "settings-changed", &settings);
     Ok(())
 }
 
@@ -419,6 +419,13 @@ fn get_history(
     )
 }
 
+/// 주기 작업용 타이머. 한 번이 주기보다 오래 걸려도(네트워크가 막혔을 때 등) 밀린 횟수만큼 몰아서 다시 돌지 않는다.
+fn steady_interval(period: Duration) -> tokio::time::Interval {
+    let mut ticker = tokio::time::interval(period);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker
+}
+
 /// 히스토리 창 이름
 const HISTORY_LABEL: &str = "history";
 
@@ -470,7 +477,7 @@ fn quit_app(app: AppHandle) {
 
 /// 계정 목록이 바뀌었음을 화면에 알리고, 메뉴바·팝오버를 다시 그린다.
 fn accounts_changed(app: &AppHandle, accounts: &[Account]) {
-    let _ = app.emit("accounts-changed", accounts);
+    refresh::emit_to_popover(app, "accounts-changed", accounts);
     refresh::publish(app);
 }
 
@@ -539,6 +546,7 @@ pub fn run() {
                 db_path,
                 summary: Mutex::new(Summary::default()),
                 token_scan: tokio::sync::Mutex::new(None),
+                menubar_model: Mutex::new(None),
                 login_misses: Mutex::new(HashMap::new()),
                 admin_keys: Mutex::new(admin_keys),
                 demo,
@@ -584,7 +592,7 @@ pub fn run() {
             // 로컬 로그 토큰 집계: 시작하자마자 한 번, 그 뒤 5분마다
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(TOKEN_SCAN_INTERVAL);
+                let mut ticker = steady_interval(TOKEN_SCAN_INTERVAL);
                 loop {
                     ticker.tick().await;
                     refresh::refresh_tokens(&handle, TOKEN_SCAN_INTERVAL / 2).await;
@@ -594,7 +602,7 @@ pub fn run() {
             // 서비스 상태: 시작하자마자 한 번, 그 뒤 5분마다
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(SERVICE_INTERVAL);
+                let mut ticker = steady_interval(SERVICE_INTERVAL);
                 loop {
                     ticker.tick().await;
                     refresh::refresh_services(&handle).await;
@@ -604,7 +612,7 @@ pub fn run() {
             // Claude API 비용: 시작하자마자 한 번, 그 뒤 1시간마다
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(API_COST_INTERVAL);
+                let mut ticker = steady_interval(API_COST_INTERVAL);
                 loop {
                     ticker.tick().await;
                     refresh::refresh_api_cost(&handle).await;
@@ -614,7 +622,7 @@ pub fn run() {
             // 1분마다 갱신한다. interval 의 첫 tick 은 바로 끝나므로 시작하자마자 한 번 조회한다.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(REFRESH_INTERVAL);
+                let mut ticker = steady_interval(REFRESH_INTERVAL);
                 loop {
                     ticker.tick().await;
                     refresh::refresh_all(&handle).await;

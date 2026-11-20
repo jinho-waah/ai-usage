@@ -54,6 +54,8 @@ pub struct AppState {
     pub summary: Mutex<Summary>,
     /// 토큰 집계가 겹치지 않게 잡는 자물쇠. 안에는 마지막으로 집계를 마친 시각.
     pub token_scan: tokio::sync::Mutex<Option<std::time::Instant>>,
+    /// 마지막으로 메뉴바에 그린 내용. 같으면 다시 그리지 않는다.
+    pub menubar_model: Mutex<Option<crate::menubar::MenubarModel>>,
     /// 계정별로 "로그인 필요"가 연속으로 몇 번 나왔는지 (로그인 만료 알림용)
     pub login_misses: Mutex<HashMap<String, u32>>,
     /// 계정 ID → Admin API 키 (키체인에서 한 번 읽어 둔 것). 키가 있는 계정만 API 비용을 보여 준다.

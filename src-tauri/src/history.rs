@@ -95,10 +95,11 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
                  total       INTEGER NOT NULL DEFAULT 0,  -- 캐시 포함 합계
                  PRIMARY KEY (provider, day, hour, model, project, session)
              );
-             -- 이미 센 Claude 응답 (같은 응답을 두 번 세지 않게)
+             -- 이미 센 Claude 응답 (같은 응답을 두 번 세지 않게).
+             -- 키 하나뿐인 표라 WITHOUT ROWID 로 두면 키를 한 번만 저장해서 크기가 절반이 된다.
              CREATE TABLE IF NOT EXISTS token_seen (
                  key TEXT PRIMARY KEY
-             );
+             ) WITHOUT ROWID;
              -- Codex 세션별로 마지막에 본 누적 토큰 (증가분만 더하려고)
              CREATE TABLE IF NOT EXISTS codex_sessions (
                  session_id  TEXT PRIMARY KEY,
@@ -117,6 +118,31 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
              );",
         )
         .map_err(|error| error.to_string())?;
+    // 예전 DB 의 token_seen 은 보통 표라서 키를 표와 인덱스에 두 번 저장한다 → 한 번 옮긴다.
+    let old_shape: bool = connection
+        .query_row(
+            "SELECT sql NOT LIKE '%WITHOUT ROWID%' FROM sqlite_master WHERE name = 'token_seen'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if old_shape {
+        let moved = connection.execute_batch(
+            "BEGIN;
+             CREATE TABLE token_seen_new (key TEXT PRIMARY KEY) WITHOUT ROWID;
+             INSERT INTO token_seen_new SELECT key FROM token_seen;
+             DROP TABLE token_seen;
+             ALTER TABLE token_seen_new RENAME TO token_seen;
+             COMMIT;",
+        );
+        if let Err(error) = moved {
+            let _ = connection.execute_batch("ROLLBACK;");
+            return Err(error.to_string());
+        }
+        // 비워진 자리를 파일에서 실제로 돌려준다 (실패해도 동작에는 문제 없다)
+        let _ = connection.execute_batch("VACUUM;");
+    }
+
     // 예전 DB 에는 리셋 시각 열이 없다 → 덧붙인다 (예전 기록은 비어 있음)
     if connection
         .prepare("SELECT resets_at FROM usage_samples LIMIT 0")
@@ -517,6 +543,43 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn old_token_seen_table_is_moved_without_losing_keys() {
+        // 예전 모양(보통 표)으로 만들어 키를 넣어 둔다
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE token_seen (key TEXT PRIMARY KEY);
+                 INSERT INTO token_seen (key) VALUES ('claude:m1:r1'), ('claude:m2:r2');",
+            )
+            .unwrap();
+
+        ensure_schema(&connection).unwrap();
+
+        let shape: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE name = 'token_seen'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(shape.contains("WITHOUT ROWID"));
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM token_seen", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "키는 그대로 남는다");
+        // 이미 센 응답은 여전히 걸러진다
+        let inserted = connection
+            .execute(
+                "INSERT OR IGNORE INTO token_seen (key) VALUES ('claude:m1:r1')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(inserted, 0);
+        // 두 번 불러도 다시 옮기지 않는다
+        ensure_schema(&connection).unwrap();
     }
 
     #[test]

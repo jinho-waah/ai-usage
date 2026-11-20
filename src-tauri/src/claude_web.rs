@@ -11,9 +11,7 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use tauri::{
-    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::accounts::Account;
 use crate::claude::{self, FetchOutcome, Organization};
@@ -159,7 +157,7 @@ pub async fn refresh_account(app: &AppHandle, account: &Account) {
                     }
                 })
             {
-                let _ = app.emit("accounts-changed", &accounts);
+                refresh::emit_to_popover(app, "accounts-changed", &accounts);
             }
         }
         state.update_data(&account.id, |data| data.plan_checked_at = Some(now));
@@ -330,7 +328,7 @@ fn complete_login(app: &AppHandle, account_id: &str, organizations: &[Organizati
             let saved = accounts
                 .iter()
                 .any(|account| account.id == account_id && account.org_id.is_some());
-            let _ = app.emit("accounts-changed", &accounts);
+            refresh::emit_to_popover(app, "accounts-changed", &accounts);
             saved
         }
         Err(message) => {

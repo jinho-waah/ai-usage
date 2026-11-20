@@ -231,8 +231,22 @@ pub fn publish(app: &AppHandle) -> Snapshot {
     };
     *state.snapshot.lock().unwrap() = snapshot.clone();
     update_menubar(app);
-    let _ = app.emit("snapshot-updated", &snapshot);
+    emit_to_popover(app, "snapshot-updated", &snapshot);
     snapshot
+}
+
+/// 팝오버가 화면에 보일 때만 이벤트를 보낸다.
+///
+/// 닫힌 팝오버의 웹뷰는 macOS 가 재워 둔다. 거기에 이벤트를 보내면 매번 깨어나 화면을 다시 그리려 하고,
+/// 그 뒤로 WebKit 의 화면 갱신 타이머가 멈추지 않아 앱이 쉬지 못한다 (쉬는 동안 CPU 의 대부분이 이것이었다).
+/// 닫혀 있던 팝오버는 열릴 때 화면 쪽에서 새 데이터를 받아 간다 (App.tsx 의 onPopoverShown).
+pub fn emit_to_popover<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    let visible = app
+        .get_webview_window(crate::popover::LABEL)
+        .is_some_and(|window| window.is_visible().unwrap_or(false));
+    if visible {
+        let _ = app.emit(event, payload);
+    }
 }
 
 /// 계정 목록과 조회 결과로 화면에 보낼 스냅샷을 만든다.
@@ -449,6 +463,16 @@ pub fn update_menubar(app: &AppHandle) {
         return;
     };
 
+    // 그릴 내용이 지난번과 같으면 아무것도 하지 않는다.
+    // (메뉴바 항목을 한 번 바꿀 때마다 macOS 가 메뉴바용 사본을 다시 그려서 수십 ms 가 든다)
+    {
+        let mut last = state.menubar_model.lock().unwrap();
+        if last.as_ref() == Some(&model) {
+            return;
+        }
+        *last = Some(model.clone());
+    }
+
     #[cfg(target_os = "macos")]
     {
         // Tauri 가 감싸고 있는 실제 macOS 메뉴바 객체를 메인 스레드에서 꺼내 그림을 바꿔 끼운다.
@@ -458,10 +482,12 @@ pub fn update_menubar(app: &AppHandle) {
             {
                 crate::menubar::macos::apply(&status_item, &model, mtm);
             }
+            // 툴팁을 다시 넣으면 클릭 영역이 새 아이콘 크기에 맞춰진다. (같은 자리에서 해서 메인 스레드를 한 번만 다녀온다)
+            let _ = inner.set_tooltip(Some("AI Usage"));
         });
     }
 
-    // 툴팁을 다시 넣으면 Tauri 가 클릭 영역을 새 아이콘 크기에 맞춰 준다.
+    #[cfg(not(target_os = "macos"))]
     let _ = tray.set_tooltip(Some("AI Usage"));
 }
 

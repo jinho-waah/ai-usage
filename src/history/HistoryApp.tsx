@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { getHistory, onSnapshotUpdated } from "../api";
+import { getHistory } from "../api";
 import { Segmented } from "../components/Segmented";
 import { formatAsOf, locale, t } from "../i18n";
 import { chartColor } from "../palette";
@@ -62,11 +62,17 @@ export function HistoryApp() {
 
   useEffect(load, [load]);
 
-  // 새 사용량이 들어오면(1분마다) 다시 불러온다
+  // 창이 보이는 동안만 1분마다 다시 불러온다. 가려지거나 최소화된 동안에는 쉬고, 다시 보이면 바로 한 번.
+  // (Rust 가 밀어 주는 알림을 쓰지 않는다: 가려진 창을 알림으로 깨우면 화면 갱신 타이머가 멈추지 않는다)
   useEffect(() => {
-    const unlisten = onSnapshotUpdated(() => load());
+    const refresh = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    const timer = setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
-      unlisten.then((stop) => stop());
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, [load]);
 
