@@ -1,0 +1,547 @@
+/*
+ * 팝오버 스타일.
+ * 창 배경은 macOS 의 반투명 블러(vibrancy)이므로 웹 화면 배경은 투명하게 둔다.
+ * 색은 라이트·다크 모드별로 변수에 모아 두었다.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --text: rgba(0, 0, 0, 0.86);
+  --text-secondary: rgba(0, 0, 0, 0.56);
+  --text-tertiary: rgba(0, 0, 0, 0.4);
+  --separator: rgba(0, 0, 0, 0.09);
+  --track: rgba(0, 0, 0, 0.1);
+  --fill: rgba(0, 0, 0, 0.62);
+  --marker: rgba(0, 0, 0, 0.8);
+  --warn: #e5372c;
+  --hover: rgba(0, 0, 0, 0.06);
+  --pressed: rgba(0, 0, 0, 0.11);
+  --segment-bg: rgba(0, 0, 0, 0.06);
+  --segment-active: rgba(255, 255, 255, 0.92);
+  --ok: #30b14f;
+  --degraded: #f29d0b;
+  --outage: #ff3b30;
+  --unknown: rgba(0, 0, 0, 0.25);
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo", sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: rgba(255, 255, 255, 0.9);
+    --text-secondary: rgba(255, 255, 255, 0.6);
+    --text-tertiary: rgba(255, 255, 255, 0.42);
+    --separator: rgba(255, 255, 255, 0.1);
+    --track: rgba(255, 255, 255, 0.15);
+    --fill: rgba(255, 255, 255, 0.72);
+    --marker: rgba(255, 255, 255, 0.88);
+    --warn: #ff5a4f;
+    --hover: rgba(255, 255, 255, 0.08);
+    --pressed: rgba(255, 255, 255, 0.14);
+    --segment-bg: rgba(255, 255, 255, 0.08);
+    --segment-active: rgba(255, 255, 255, 0.22);
+    --unknown: rgba(255, 255, 255, 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+button {
+  font: inherit;
+  cursor: default;
+}
+
+button:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ───────── 팝오버 틀 ───────── */
+
+.popover {
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.popover-content {
+  padding: 10px 14px;
+}
+
+/* 일반 브라우저 미리보기(npm run dev)에서만: 배경과 카드 모양을 흉내 낸다 */
+html.preview,
+html.preview body {
+  background: #d9dbe0;
+}
+
+html.preview .popover {
+  width: 360px;
+  height: auto;
+  margin: 24px auto;
+  border-radius: 14px;
+  background: rgba(246, 246, 248, 0.94);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+}
+
+@media (prefers-color-scheme: dark) {
+  html.preview,
+  html.preview body {
+    background: #1b1c20;
+  }
+
+  html.preview .popover {
+    background: rgba(44, 44, 48, 0.94);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  }
+}
+
+/* ───────── 머리글 ───────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  margin-bottom: 2px;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.header-spacer {
+  width: 24px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon-button:active {
+  background: var(--pressed);
+}
+
+.spin {
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ───────── 계정 카드 ───────── */
+
+.card {
+  padding: 10px 0;
+  border-top: 1px solid var(--separator);
+}
+
+.card:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+
+.card-name {
+  font-weight: 600;
+}
+
+.card-plan {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.label-alias {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--account-color) 20%, transparent);
+  color: var(--account-color);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.label-emoji {
+  width: 18px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.label-dot {
+  width: 9px;
+  height: 9px;
+  margin: 0 4.5px;
+  border-radius: 50%;
+}
+
+.empty {
+  margin: 16px 0;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* ───────── 사용량 막대 ───────── */
+
+.usage + .usage {
+  margin-top: 6px;
+}
+
+.usage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-title {
+  flex: none;
+  width: 30px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.usage-value {
+  flex: none;
+  width: 36px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+}
+
+.usage-value.warn,
+.warn-text {
+  color: var(--warn);
+}
+
+.usage-meta {
+  margin: 2px 0 0 38px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.usage-bar {
+  position: relative;
+  flex: 1;
+  height: 12px;
+}
+
+.usage-bar-body {
+  position: absolute;
+  top: 3px;
+  right: 0;
+  left: 0;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--track);
+}
+
+/* 시간 눈금 자리를 투명하게 비워서, 눈금이 채워진 부분 위에 있어도 잘 보이게 한다 */
+.usage-bar.has-marker .usage-bar-body {
+  --gap-start: calc(var(--elapsed) - 2.5px);
+  --gap-end: calc(var(--elapsed) + 2.5px);
+  -webkit-mask: linear-gradient(
+    to right,
+    #000 var(--gap-start),
+    transparent var(--gap-start),
+    transparent var(--gap-end),
+    #000 var(--gap-end)
+  );
+  mask: linear-gradient(
+    to right,
+    #000 var(--gap-start),
+    transparent var(--gap-start),
+    transparent var(--gap-end),
+    #000 var(--gap-end)
+  );
+}
+
+.usage-bar-fill {
+  width: var(--used);
+  height: 100%;
+  background: var(--fill);
+}
+
+.usage-bar.warn .usage-bar-fill {
+  background: var(--warn);
+}
+
+.usage-bar-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--elapsed) - 1px);
+  width: 2px;
+  border-radius: 1px;
+  background: var(--marker);
+}
+
+/* ───────── 펼치기(모델별 한도, Extra usage) ───────── */
+
+.disclosure {
+  margin-top: 6px;
+}
+
+.disclosure-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.disclosure-head:hover {
+  color: var(--text);
+}
+
+.disclosure-summary {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.disclosure-body {
+  display: grid;
+  gap: 5px;
+  padding: 4px 0 2px 15px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.detail-name {
+  flex: none;
+  width: 48px;
+  color: var(--text-secondary);
+}
+
+.detail-value {
+  flex: none;
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ───────── 미니 추세 ───────── */
+
+.trend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.trend-label {
+  flex: none;
+  width: 48px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.sparkline {
+  display: block;
+  flex: 1;
+  height: 26px;
+}
+
+/* ───────── 아래쪽 요약 ───────── */
+
+.footer {
+  display: grid;
+  gap: 5px;
+  padding-top: 9px;
+  border-top: 1px solid var(--separator);
+}
+
+.summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.summary-label {
+  color: var(--text-secondary);
+}
+
+.summary-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.services {
+  display: flex;
+  gap: 10px;
+}
+
+.service {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--unknown);
+}
+
+.status-dot.operational {
+  background: var(--ok);
+}
+
+.status-dot.degraded {
+  background: var(--degraded);
+}
+
+.status-dot.outage {
+  background: var(--outage);
+}
+
+.footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 3px;
+  padding-top: 6px;
+  border-top: 1px solid var(--separator);
+}
+
+.updated {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.text-button {
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.text-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.text-button:disabled {
+  opacity: 0.45;
+}
+
+/* ───────── 설정 ───────── */
+
+.setting {
+  padding: 10px 0;
+  border-top: 1px solid var(--separator);
+}
+
+.setting-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.segmented {
+  display: flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--segment-bg);
+}
+
+.segment {
+  flex: 1;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.segment.active {
+  background: var(--segment-active);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.setting-help {
+  margin: 7px 0 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-note {
+  margin: 4px 0 2px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}

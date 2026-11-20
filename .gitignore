@@ -1,3 +1,24 @@
+# macOS
 .DS_Store
+
+# 비밀값 (절대 커밋하지 않기)
 .env
 .env.*
+
+# Node / Vite
+node_modules
+dist
+dist-ssr
+*.local
+logs
+*.log
+npm-debug.log*
+
+# 개발용 메뉴바 아이콘 미리보기 (cargo run --example render_menubar)
+menubar-previews
+
+# 에디터
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?

@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "팝오버 창이 쓸 수 있는 기능",
+  "windows": ["popover"],
+  "permissions": [
+    "core:default",
+    "opener:default"
+  ]
+}

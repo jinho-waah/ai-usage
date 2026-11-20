@@ -1,0 +1,104 @@
+// 브라우저 미리보기(`npm run dev`)용 가짜 데이터.
+// 실제 앱에서는 쓰지 않는다. 앱 안의 가짜 데이터는 Rust(src-tauri/src/mock.rs)가 만든다.
+
+import type { AccountUsage, Settings, Snapshot, TrendPoint, UsageWindow } from "./types";
+
+const HOUR = 3_600_000;
+const WEEK_SECONDS = 7 * 24 * 3600;
+
+function usageWindow(used: number, resetsInHours: number, windowSeconds: number): UsageWindow {
+  const now = Date.now();
+  const resetsAt = now + resetsInHours * HOUR;
+  const start = resetsAt - windowSeconds * 1000;
+  const elapsedPercent = Math.min(100, Math.max(0, ((now - start) / (windowSeconds * 1000)) * 100));
+  return {
+    usedPercent: used,
+    resetsAt: new Date(resetsAt).toISOString(),
+    windowSeconds,
+    elapsedPercent,
+    aheadOfPace: used >= elapsedPercent + 5,
+  };
+}
+
+function trend(window: UsageWindow, previousFrom: number, previousTo: number): TrendPoint[] {
+  const now = Date.now();
+  const cycleStart = new Date(window.resetsAt).getTime() - window.windowSeconds * 1000;
+  const points: TrendPoint[] = [];
+  for (let i = 0; i <= 168; i++) {
+    const at = now - (168 - i) * HOUR;
+    const percent =
+      at >= cycleStart
+        ? (window.usedPercent * (at - cycleStart)) / Math.max(1, now - cycleStart)
+        : previousFrom + ((previousTo - previousFrom) * (at - (now - 168 * HOUR))) / Math.max(1, cycleStart - (now - 168 * HOUR));
+    points.push({ at: new Date(at).toISOString(), percent });
+  }
+  return points;
+}
+
+export function mockSnapshot(): Snapshot {
+  const personalWeekly = usageWindow(58, 74, WEEK_SECONDS);
+  const workWeekly = usageWindow(41, 129, WEEK_SECONDS);
+  const codexWeekly = usageWindow(55, 28, WEEK_SECONDS);
+
+  const accounts: AccountUsage[] = [
+    {
+      id: "mock-personal",
+      provider: "claude",
+      name: "개인",
+      label: { kind: "alias", text: "J" },
+      color: "#D97757",
+      plan: "Max 20x",
+      weekly: personalWeekly,
+      session: null,
+      models: [
+        { name: "Opus", usedPercent: 12 },
+        { name: "Sonnet", usedPercent: 31 },
+      ],
+      extra: { used: 4.2, limit: 50, currency: "USD" },
+      trend: trend(personalWeekly, 30, 72),
+    },
+    {
+      id: "mock-work",
+      provider: "claude",
+      name: "회사",
+      label: { kind: "emoji", text: "💼" },
+      color: "#6A9BCC",
+      plan: "Pro",
+      weekly: workWeekly,
+      session: usageWindow(12, 2.67, 5 * 3600),
+      models: [],
+      extra: null,
+      trend: trend(workWeekly, 10, 64),
+    },
+    {
+      id: "mock-codex",
+      provider: "codex",
+      name: "Codex",
+      label: { kind: "dot", text: "" },
+      color: "#10A37F",
+      plan: "Pro",
+      weekly: codexWeekly,
+      session: null,
+      models: [],
+      extra: null,
+      trend: trend(codexWeekly, 20, 80),
+    },
+  ];
+
+  return {
+    accounts,
+    summary: {
+      claudeCodeToday: { tokens: 1_240_000, costUsd: 12.4 },
+      apiMonthCostUsd: 3.1,
+      services: [
+        { name: "Claude", state: "operational" },
+        { name: "OpenAI", state: "operational" },
+      ],
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function mockSettings(): Settings {
+  return { menubarStyle: "bars", percentMode: "used" };
+}
