@@ -204,6 +204,7 @@ pub fn build_snapshot(
                 }),
                 models: usage.models,
                 extra: data.extra,
+                api_cost: data.api_cost,
                 trend: trends.get(&account.id).cloned().unwrap_or_default(),
                 status,
                 updated_at: data.updated_at,
@@ -301,36 +302,42 @@ pub async fn refresh_services(app: &AppHandle) {
     publish(app);
 }
 
-/// 이번 달 Claude API 비용을 받아 온다. Admin API 키가 없으면 비용 칸을 비운다. (1시간마다)
+/// Admin API 키가 있는 계정마다 이번 달 Claude API 비용을 받아 온다. (1시간마다, 키를 넣었을 때)
 pub async fn refresh_api_cost(app: &AppHandle) {
-    use crate::api_cost::{self, CostOutcome};
-
     let state = app.state::<AppState>();
     if state.demo {
         return;
     }
-    let Some(key) = state.admin_key.lock().unwrap().clone() else {
-        state.summary.lock().unwrap().api_cost = None;
-        *state.api_cost_error.lock().unwrap() = None;
-        publish(app);
-        return;
-    };
-    match api_cost::fetch_month_cost(&key, chrono::Local::now()).await {
-        CostOutcome::Ok(cost) => {
-            state.summary.lock().unwrap().api_cost = Some(cost);
-            *state.api_cost_error.lock().unwrap() = None;
-        }
-        CostOutcome::Unauthorized => {
-            state.summary.lock().unwrap().api_cost = None;
-            *state.api_cost_error.lock().unwrap() =
-                Some("Admin API 키가 맞지 않거나 권한이 없어요".to_string());
-        }
-        // 일시적인 오류면 이전 값을 그대로 둔다
-        CostOutcome::Failed(message) => {
-            *state.api_cost_error.lock().unwrap() = Some(message);
-        }
+    let keys: Vec<(String, String)> = state
+        .admin_keys
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, key)| (id.clone(), key.clone()))
+        .collect();
+    for (account_id, key) in keys {
+        refresh_account_api_cost(&state, &account_id, &key).await;
     }
     publish(app);
+}
+
+/// 계정 하나의 API 비용 조회
+pub async fn refresh_account_api_cost(state: &AppState, account_id: &str, key: &str) {
+    use crate::api_cost::{self, CostOutcome};
+
+    let outcome = api_cost::fetch_month_cost(key, chrono::Local::now()).await;
+    state.update_data(account_id, |data| match outcome {
+        CostOutcome::Ok(cost) => {
+            data.api_cost = Some(cost);
+            data.api_cost_error = None;
+        }
+        CostOutcome::Unauthorized => {
+            data.api_cost = None;
+            data.api_cost_error = Some("Admin API 키가 맞지 않거나 권한이 없어요".to_string());
+        }
+        // 일시적인 오류면 이전 값을 그대로 둔다
+        CostOutcome::Failed(message) => data.api_cost_error = Some(message),
+    });
 }
 
 /// DB 합계를 화면용으로 바꾼다. Claude 먼저, 그다음 Codex.

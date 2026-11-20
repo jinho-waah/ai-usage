@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from "react";
 
 import {
+  formatAsOf,
   formatClock,
   formatHours,
   formatMoney,
   formatPercent,
   formatResetTime,
+  formatUsd,
   t,
 } from "../i18n";
 import type { AccountStatus, AccountUsage, PercentMode, UsageWindow } from "../types";
@@ -100,6 +102,20 @@ export function AccountCard({ account, percentMode, now, onSignIn }: AccountCard
             </span>
           </div>
         </Disclosure>
+      )}
+
+      {account.apiCost && (
+        <div
+          className="detail-line"
+          title={
+            account.apiCost.refreshedAt
+              ? t("apiCostAsOf", { time: formatAsOf(account.apiCost.refreshedAt, Date.now()) })
+              : t("apiCostNoData")
+          }
+        >
+          <span>{t("apiThisMonth")}</span>
+          <span className="detail-line-value">{formatUsd(account.apiCost.usd)}</span>
+        </div>
       )}
 
       {account.trend.length > 1 && (

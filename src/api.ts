@@ -21,7 +21,8 @@ import type {
 const inApp = isTauri();
 let browserSettings: Settings = mockSettings();
 let browserAccounts: Account[] = mockAccounts();
-let browserApiCost: ApiCostInfo = { configured: false, keyHint: null, error: null, cost: null };
+const noApiKey: ApiCostInfo = { configured: false, keyHint: null, error: null, cost: null };
+const browserApiCosts: Record<string, ApiCostInfo> = {};
 
 // ───────── 히스토리 창 ─────────
 
@@ -36,31 +37,33 @@ export function openHistory(): Promise<void> {
   return Promise.resolve();
 }
 
-// ───────── Claude API 비용 (Admin API 키) ─────────
+// ───────── Claude API 비용 (계정마다 Admin API 키) ─────────
 
-export function getApiCostInfo(): Promise<ApiCostInfo> {
-  return inApp ? invoke<ApiCostInfo>("get_api_cost_info") : Promise.resolve(browserApiCost);
+export function getApiCostInfo(accountId: string): Promise<ApiCostInfo> {
+  return inApp
+    ? invoke<ApiCostInfo>("get_api_cost_info", { accountId })
+    : Promise.resolve(browserApiCosts[accountId] ?? noApiKey);
 }
 
-/** 키를 확인하고 키체인에 저장한다. 틀린 키면 오류 메시지를 던진다. */
-export function setAdminKey(key: string): Promise<ApiCostInfo> {
-  if (inApp) return invoke<ApiCostInfo>("set_admin_key", { key });
+/** 계정의 키를 확인하고 키체인에 저장한다. 틀린 키면 오류 메시지를 던진다. */
+export function setAdminKey(accountId: string, key: string): Promise<ApiCostInfo> {
+  if (inApp) return invoke<ApiCostInfo>("set_admin_key", { accountId, key });
   if (!key.trim().startsWith("sk-ant-admin")) {
     return Promise.reject("Admin API 키(sk-ant-admin…)를 넣어 주세요. 일반 API 키로는 비용을 볼 수 없어요");
   }
-  browserApiCost = {
+  browserApiCosts[accountId] = {
     configured: true,
     keyHint: `sk-ant-admin…${key.trim().slice(-4)}`,
     error: null,
     cost: { usd: 3.1, refreshedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() },
   };
-  return Promise.resolve(browserApiCost);
+  return Promise.resolve(browserApiCosts[accountId]);
 }
 
-export function removeAdminKey(): Promise<ApiCostInfo> {
-  if (inApp) return invoke<ApiCostInfo>("remove_admin_key");
-  browserApiCost = { configured: false, keyHint: null, error: null, cost: null };
-  return Promise.resolve(browserApiCost);
+export function removeAdminKey(accountId: string): Promise<ApiCostInfo> {
+  if (inApp) return invoke<ApiCostInfo>("remove_admin_key", { accountId });
+  delete browserApiCosts[accountId];
+  return Promise.resolve(noApiKey);
 }
 
 // ───────── 계정 ─────────

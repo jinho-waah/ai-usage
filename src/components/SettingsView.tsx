@@ -70,23 +70,21 @@ export function SettingsView({ settings, accounts, onChange, onBack }: SettingsV
         </p>
       </section>
 
-      <ApiCostSection />
-
       <LegacyImportSection accounts={accounts} />
     </div>
   );
 }
 
-/** Claude API 비용: Admin API 키 입력·삭제 */
-function ApiCostSection() {
+/** 계정 편집 화면의 Claude API 칸: 이 계정의 Admin API 키 입력·삭제 */
+function ApiKeyField({ accountId }: { accountId: string }) {
   const [info, setInfo] = useState<ApiCostInfo | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getApiCostInfo().then(setInfo);
-  }, []);
+    getApiCostInfo(accountId).then(setInfo);
+  }, [accountId]);
 
   if (!info) return null;
 
@@ -95,7 +93,7 @@ function ApiCostSection() {
     setBusy(true);
     setError(null);
     try {
-      setInfo(await setAdminKey(draft));
+      setInfo(await setAdminKey(accountId, draft));
       setDraft("");
     } catch (reason) {
       setError(String(reason));
@@ -107,7 +105,7 @@ function ApiCostSection() {
   const remove = async () => {
     setError(null);
     try {
-      setInfo(await removeAdminKey());
+      setInfo(await removeAdminKey(accountId));
     } catch (reason) {
       setError(String(reason));
     }
@@ -115,8 +113,9 @@ function ApiCostSection() {
 
   const message = error ?? info.error;
   return (
-    <section className="setting">
-      <div className="setting-title">{t("apiCostTitle")}</div>
+    <div className="field">
+      <span className="field-label">{t("apiCostTitle")}</span>
+      <div className="field-stack">
       {info.configured ? (
         <div className="api-key-row">
           <div className="account-text">
@@ -151,9 +150,10 @@ function ApiCostSection() {
           </button>
         </div>
       )}
-      {message && <p className="error-text">{message}</p>}
-      <p className="setting-help">{t("apiCostHelp")}</p>
-    </section>
+      {message && <span className="error-text">{message}</span>}
+      <span className="field-help">{t("apiCostHelp")}</span>
+      </div>
+    </div>
   );
 }
 
@@ -377,6 +377,8 @@ function AccountEditor({ account, onDone }: { account: Account; onDone: () => vo
           ))}
         </div>
       </div>
+
+      {account.provider === "claude" && <ApiKeyField accountId={account.id} />}
 
       <div className="editor-actions">
         <button className={`text-button danger${confirmingRemove ? " confirming" : ""}`} onClick={remove}>

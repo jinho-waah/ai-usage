@@ -168,6 +168,8 @@ pub struct AccountUsage {
     pub session: Option<UsageWindow>,
     pub models: Vec<ModelUsage>,
     pub extra: Option<ExtraUsage>,
+    /// 이번 달 Claude API 비용 (이 계정에 Admin API 키가 있을 때만)
+    pub api_cost: Option<crate::api_cost::MonthCost>,
     pub trend: Vec<TrendPoint>,
     pub status: AccountStatus,
     /// 마지막으로 사용량을 받아 온 시각. 아직 못 받았으면 `None`.
@@ -226,8 +228,6 @@ pub struct Summary {
     pub tokens: Vec<BrandTokens>,
     /// 로그를 집계하는 중이면 true
     pub tokens_scanning: bool,
-    /// 이번 달 Claude API 비용 (Admin API 키가 있을 때만)
-    pub api_cost: Option<crate::api_cost::MonthCost>,
     pub services: Vec<ServiceStatus>,
 }
 

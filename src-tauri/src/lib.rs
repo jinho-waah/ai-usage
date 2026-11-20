@@ -281,6 +281,9 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
         .find(|account| account.id == id);
     let accounts = state.update_accounts(|accounts| accounts.retain(|account| account.id != id))?;
     state.account_data.lock().unwrap().remove(&id);
+    if state.admin_keys.lock().unwrap().remove(&id).is_some() {
+        let _ = api_cost::delete_key(&id);
+    }
     if let Some(history) = &state.history {
         let _ = history.delete_account(&id);
     }
@@ -303,24 +306,38 @@ struct ApiCostInfo {
     cost: Option<api_cost::MonthCost>,
 }
 
-fn api_cost_info(state: &AppState) -> ApiCostInfo {
-    let key = state.admin_key.lock().unwrap().clone();
+fn api_cost_info(state: &AppState, account_id: &str) -> ApiCostInfo {
+    let key = state.admin_keys.lock().unwrap().get(account_id).cloned();
+    let data = state.data(account_id);
     ApiCostInfo {
         configured: key.is_some(),
         key_hint: key.as_deref().map(api_cost::mask),
-        error: state.api_cost_error.lock().unwrap().clone(),
-        cost: state.summary.lock().unwrap().api_cost.clone(),
+        error: data.api_cost_error,
+        cost: data.api_cost,
     }
 }
 
+/// 계정 하나의 Admin API 키·비용 정보 (계정 편집 화면)
 #[tauri::command]
-fn get_api_cost_info(state: tauri::State<AppState>) -> ApiCostInfo {
-    api_cost_info(&state)
+fn get_api_cost_info(state: tauri::State<AppState>, account_id: String) -> ApiCostInfo {
+    api_cost_info(&state, &account_id)
 }
 
-/// Admin API 키를 확인하고 키체인에 저장한다. 키가 틀리면 저장하지 않는다.
+/// 계정의 Admin API 키를 확인하고 키체인에 저장한다. 키가 틀리면 저장하지 않는다.
 #[tauri::command]
-async fn set_admin_key(app: AppHandle, key: String) -> Result<ApiCostInfo, String> {
+async fn set_admin_key(
+    app: AppHandle,
+    account_id: String,
+    key: String,
+) -> Result<ApiCostInfo, String> {
+    let state = app.state::<AppState>();
+    let is_claude = state
+        .accounts()
+        .iter()
+        .any(|account| account.id == account_id && account.provider == Provider::Claude);
+    if !is_claude {
+        return Err("Claude 계정에만 API 키를 넣을 수 있어요".to_string());
+    }
     let key = key.trim().to_string();
     if !api_cost::looks_like_admin_key(&key) {
         return Err(
@@ -333,23 +350,29 @@ async fn set_admin_key(app: AppHandle, key: String) -> Result<ApiCostInfo, Strin
     {
         return Err("키가 맞지 않거나 권한이 없어요".to_string());
     }
-    api_cost::save_key(&key)?;
-    let state = app.state::<AppState>();
-    *state.admin_key.lock().unwrap() = Some(key);
-    refresh::refresh_api_cost(&app).await;
-    Ok(api_cost_info(&state))
+    api_cost::save_key(&account_id, &key)?;
+    state
+        .admin_keys
+        .lock()
+        .unwrap()
+        .insert(account_id.clone(), key.clone());
+    refresh::refresh_account_api_cost(&state, &account_id, &key).await;
+    refresh::publish(&app);
+    Ok(api_cost_info(&state, &account_id))
 }
 
-/// Admin API 키를 키체인에서 지운다.
+/// 계정의 Admin API 키를 키체인에서 지운다.
 #[tauri::command]
-fn remove_admin_key(app: AppHandle) -> Result<ApiCostInfo, String> {
-    api_cost::delete_key()?;
+fn remove_admin_key(app: AppHandle, account_id: String) -> Result<ApiCostInfo, String> {
+    api_cost::delete_key(&account_id)?;
     let state = app.state::<AppState>();
-    *state.admin_key.lock().unwrap() = None;
-    *state.api_cost_error.lock().unwrap() = None;
-    state.summary.lock().unwrap().api_cost = None;
+    state.admin_keys.lock().unwrap().remove(&account_id);
+    state.update_data(&account_id, |data| {
+        data.api_cost = None;
+        data.api_cost_error = None;
+    });
     refresh::publish(&app);
-    Ok(api_cost_info(&state))
+    Ok(api_cost_info(&state, &account_id))
 }
 
 /// 히스토리 창 데이터. `range`: "cycle" | "7d" | "30d" | "all"
@@ -474,11 +497,25 @@ pub fn run() {
             let started_at = Utc::now();
             let demo = std::env::var("AI_USAGE_DEMO").is_ok_and(|value| value == "1");
 
+            // Claude 계정마다 키체인에서 Admin API 키를 읽어 둔다 (데모 모드에서는 읽지 않음)
+            let loaded_accounts = accounts::load(&accounts_path);
+            let admin_keys: HashMap<String, String> = if demo {
+                HashMap::new()
+            } else {
+                loaded_accounts
+                    .iter()
+                    .filter(|account| account.provider == Provider::Claude)
+                    .filter_map(|account| {
+                        api_cost::load_key(&account.id).map(|key| (account.id.clone(), key))
+                    })
+                    .collect()
+            };
+
             app.manage(AppState {
                 snapshot: Mutex::new(mock::snapshot(started_at, started_at)),
                 settings: Mutex::new(settings::load(&settings_path)),
                 settings_path,
-                accounts: Mutex::new(accounts::load(&accounts_path)),
+                accounts: Mutex::new(loaded_accounts),
                 accounts_path,
                 account_data: Mutex::new(HashMap::new()),
                 logging_in: Mutex::new(HashSet::new()),
@@ -488,9 +525,7 @@ pub fn run() {
                 summary: Mutex::new(Summary::default()),
                 token_scan: tokio::sync::Mutex::new(None),
                 login_misses: Mutex::new(HashMap::new()),
-                // 데모 모드에서는 키체인을 읽지 않는다
-                admin_key: Mutex::new(if demo { None } else { api_cost::load_key() }),
-                api_cost_error: Mutex::new(None),
+                admin_keys: Mutex::new(admin_keys),
                 demo,
                 started_at,
             });

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { openHistory } from "../api";
-import { formatAsOf, formatCount, formatDay, formatTokens, formatUpdated, formatUsd, t } from "../i18n";
+import { formatCount, formatDay, formatTokens, formatUpdated, t } from "../i18n";
 import type { BrandTokens, Summary } from "../types";
 import { ChevronIcon } from "./Icons";
 
@@ -11,11 +11,10 @@ interface FooterProps {
   onQuit: () => void;
 }
 
-/** 팝오버 아래쪽: 브랜드별 누적 토큰, API 비용, 서비스 상태, 갱신 시각 */
+/** 팝오버 아래쪽: 브랜드별 누적 토큰, 서비스 상태, 갱신 시각 (API 비용은 계정 카드 안에) */
 export function Footer({ summary, updatedAt, now, onQuit }: FooterProps) {
   const showScanning = summary.tokensScanning && summary.tokens.length === 0;
-  const hasSummary =
-    summary.tokens.length > 0 || showScanning || summary.apiCost !== null || summary.services.length > 0;
+  const hasSummary = summary.tokens.length > 0 || showScanning || summary.services.length > 0;
 
   return (
     <footer className="footer">
@@ -25,19 +24,6 @@ export function Footer({ summary, updatedAt, now, onQuit }: FooterProps) {
             <TokenRow key={brand.provider} brand={brand} />
           ))}
           {showScanning && <div className="summary-note">{t("tokensScanning")}</div>}
-          {summary.apiCost !== null && (
-            <div
-              className="summary-row"
-              title={
-                summary.apiCost.refreshedAt
-                  ? t("apiCostAsOf", { time: formatAsOf(summary.apiCost.refreshedAt, now) })
-                  : t("apiCostNoData")
-              }
-            >
-              <span className="summary-label">{t("apiThisMonth")}</span>
-              <span className="summary-value">{formatUsd(summary.apiCost.usd)}</span>
-            </div>
-          )}
           {summary.services.length > 0 && (
             <div className="summary-row">
               <span className="summary-label">{t("services")}</span>

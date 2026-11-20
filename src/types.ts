@@ -51,6 +51,8 @@ export interface AccountUsage {
   session: UsageWindow | null;
   models: ModelUsage[];
   extra: ExtraUsage | null;
+  /** 이번 달 Claude API 비용 (이 계정에 Admin API 키가 있을 때만) */
+  apiCost: MonthCost | null;
   trend: TrendPoint[];
   status: AccountStatus;
   /** 마지막으로 사용량을 받아 온 시각. 아직 못 받았으면 null */
@@ -127,7 +129,7 @@ export interface MonthCost {
   refreshedAt: string | null;
 }
 
-/** 설정 화면의 Claude API 칸 */
+/** 계정 편집 화면의 Claude API 칸 */
 export interface ApiCostInfo {
   configured: boolean;
   /** 가린 키 ("sk-ant-admin…abcd") */
@@ -140,7 +142,6 @@ export interface Summary {
   tokens: BrandTokens[];
   /** 로그를 집계하는 중 */
   tokensScanning: boolean;
-  apiCost: MonthCost | null;
   services: ServiceStatus[];
 }
 

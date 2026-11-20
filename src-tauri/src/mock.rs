@@ -73,6 +73,10 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
                 limit: Some(50.0),
                 currency: "USD".into(),
             }),
+            api_cost: Some(crate::api_cost::MonthCost {
+                usd: 3.1,
+                refreshed_at: Some(now - Duration::hours(3)),
+            }),
             status: AccountStatus::Ok,
             updated_at: Some(now),
         },
@@ -91,6 +95,7 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             session: Some(work_session),
             models: vec![],
             extra: None,
+            api_cost: None,
             status: AccountStatus::Ok,
             updated_at: Some(now),
         },
@@ -109,6 +114,7 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             session: None,
             models: vec![],
             extra: None,
+            api_cost: None,
             status: AccountStatus::Ok,
             updated_at: Some(now),
         },
@@ -142,10 +148,6 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
                 },
             ],
             tokens_scanning: false,
-            api_cost: Some(crate::api_cost::MonthCost {
-                usd: 3.1,
-                refreshed_at: Some(now - Duration::hours(3)),
-            }),
             services: vec![
                 ServiceStatus {
                     name: "Claude".into(),

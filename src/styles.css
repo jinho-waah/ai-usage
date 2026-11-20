@@ -863,3 +863,19 @@ html.preview .popover {
   flex: 1;
   min-width: 0;
 }
+
+/* 카드 안 한 줄 정보 (API 이번 달 비용): 펼치기 줄과 같은 들여쓰기 */
+.detail-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding: 2px 0 2px 15px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.detail-line-value {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

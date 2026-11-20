@@ -1,6 +1,7 @@
 //! Claude API(Console) 이번 달 비용. Admin API 키로 공식 Usage and Cost Analytics API 를 부른다.
 //!
-//! - 키는 macOS 키체인에만 저장한다 (파일에 쓰지 않는다).
+//! - 키는 Claude 계정마다 따로 둔다 (계정마다 Console 조직이 다를 수 있어서).
+//! - 키는 macOS 키체인에만 저장한다 (파일에 쓰지 않는다). 키체인 항목 이름: `admin-api-key:<계정 ID>`
 //! - `GET /v1/organizations/analytics/cost` 에 이번 달 1일 0시(내 시간대)부터 지금까지를 주면
 //!   합계 한 줄이 온다. 금액은 센트 단위 문자열이다 ("41280.000000" = $412.80).
 //! - 데이터는 보통 4시간(최대 24시간) 늦게 반영된다. 응답의 `data_refreshed_at` 이 그 기준 시각이다.
@@ -21,7 +22,9 @@ const MAX_PAGES: usize = 10;
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "io.github.jinho-waah.ai-usage";
 #[cfg(target_os = "macos")]
-const KEYCHAIN_ACCOUNT: &str = "anthropic-admin-api-key";
+fn keychain_account(account_id: &str) -> String {
+    format!("admin-api-key:{account_id}")
+}
 
 /// 이번 달 비용
 #[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
@@ -58,27 +61,31 @@ pub fn mask(key: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-pub fn load_key() -> Option<String> {
-    let bytes =
-        security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
-            .ok()?;
+pub fn load_key(account_id: &str) -> Option<String> {
+    let bytes = security_framework::passwords::get_generic_password(
+        KEYCHAIN_SERVICE,
+        &keychain_account(account_id),
+    )
+    .ok()?;
     String::from_utf8(bytes).ok().filter(|key| !key.is_empty())
 }
 
 #[cfg(target_os = "macos")]
-pub fn save_key(key: &str) -> Result<(), String> {
+pub fn save_key(account_id: &str, key: &str) -> Result<(), String> {
     security_framework::passwords::set_generic_password(
         KEYCHAIN_SERVICE,
-        KEYCHAIN_ACCOUNT,
+        &keychain_account(account_id),
         key.as_bytes(),
     )
     .map_err(|error| format!("키체인에 저장하지 못했어요: {error}"))
 }
 
 #[cfg(target_os = "macos")]
-pub fn delete_key() -> Result<(), String> {
-    match security_framework::passwords::delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
-    {
+pub fn delete_key(account_id: &str) -> Result<(), String> {
+    match security_framework::passwords::delete_generic_password(
+        KEYCHAIN_SERVICE,
+        &keychain_account(account_id),
+    ) {
         Ok(()) => Ok(()),
         // 원래 없던 키는 지운 것과 같다 (errSecItemNotFound)
         Err(error) if error.code() == -25300 => Ok(()),
@@ -87,17 +94,17 @@ pub fn delete_key() -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn load_key() -> Option<String> {
+pub fn load_key(_account_id: &str) -> Option<String> {
     None
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn save_key(_key: &str) -> Result<(), String> {
+pub fn save_key(_account_id: &str, _key: &str) -> Result<(), String> {
     Err("이 운영체제에서는 키를 저장할 수 없어요".to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn delete_key() -> Result<(), String> {
+pub fn delete_key(_account_id: &str) -> Result<(), String> {
     Ok(())
 }
 
