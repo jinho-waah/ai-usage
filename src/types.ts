@@ -198,6 +198,15 @@ export interface HistoryData {
   cycles: HistoryCycle[];
 }
 
+/** 로그인할 때 자동으로 열기 */
+export interface LoginItemState {
+  /** 설치한 앱(.app)이라 켤 수 있는지 (개발 모드면 false) */
+  supported: boolean;
+  enabled: boolean;
+  /** 시스템 설정에서 허용이 필요함 */
+  needsApproval: boolean;
+}
+
 export type MenubarStyle = "bars" | "numbers";
 export type PercentMode = "used" | "remaining";
 

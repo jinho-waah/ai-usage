@@ -25,6 +25,7 @@ mod codex;
 mod history;
 mod history_view;
 mod legacy;
+mod login_item;
 mod menubar;
 mod mock;
 mod model;
@@ -57,6 +58,8 @@ use crate::state::AppState;
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 /// 로컬 로그 토큰 집계 간격
 const TOKEN_SCAN_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// 로그인 항목을 처음 한 번 켜 뒀는지 기억하는 키
+const LOGIN_ITEM_KEY: &str = "login-item-initialized";
 /// 서비스 상태 페이지 확인 간격
 const SERVICE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 /// API 비용 조회 간격 (데이터가 몇 시간 늦게 반영되므로 자주 볼 필요 없다)
@@ -375,6 +378,18 @@ fn remove_admin_key(app: AppHandle, account_id: String) -> Result<ApiCostInfo, S
     Ok(api_cost_info(&state, &account_id))
 }
 
+/// 로그인할 때 자동으로 열기: 지금 상태
+#[tauri::command]
+fn get_login_item() -> login_item::LoginItemState {
+    login_item::state()
+}
+
+/// 로그인할 때 자동으로 열기: 켜기·끄기
+#[tauri::command]
+fn set_login_item(enabled: bool) -> Result<login_item::LoginItemState, String> {
+    login_item::set(enabled)
+}
+
 /// 히스토리 창 데이터. `range`: "cycle" | "7d" | "30d" | "all"
 #[tauri::command]
 fn get_history(
@@ -550,6 +565,17 @@ pub fn run() {
                 popover::configure_macos(&window);
             }
 
+            // 설치한 앱을 처음 켰을 때 한 번: 로그인할 때 자동으로 열기를 켜 둔다 (설정에서 끌 수 있음)
+            if login_item::is_bundled()
+                && let Some(history) = &app.state::<AppState>().history
+                && history.meta(LOGIN_ITEM_KEY).is_none()
+            {
+                if let Err(error) = login_item::set(true) {
+                    eprintln!("[ai-usage] {error}");
+                }
+                let _ = history.set_meta(LOGIN_ITEM_KEY, &Utc::now().to_rfc3339());
+            }
+
             // 실제 데이터를 받기 전까지는 빈 화면(계정만 보이는 상태)으로 바로 그린다.
             refresh::publish(app.handle());
             // Codex 지난 기록을 처음 한 번 가져온다 (이미 했으면 아무것도 안 함)
@@ -617,6 +643,8 @@ pub fn run() {
             remove_admin_key,
             get_history,
             open_history,
+            get_login_item,
+            set_login_item,
             resize_popover,
             hide_popover,
             quit_app

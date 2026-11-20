@@ -48,6 +48,8 @@ objc2-web-kit = "0.3"
 block2 = "0.6"
 # Admin API 키를 macOS 키체인에 저장할 때
 security-framework = "3"
+# 로그인할 때 자동으로 열기 (SMAppService)
+objc2-service-management = "0.3"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -14,6 +14,7 @@ import type {
   HistoryData,
   HistoryRange,
   LegacyProfile,
+  LoginItemState,
   Settings,
   Snapshot,
 } from "./types";
@@ -23,6 +24,20 @@ let browserSettings: Settings = mockSettings();
 let browserAccounts: Account[] = mockAccounts();
 const noApiKey: ApiCostInfo = { configured: false, keyHint: null, error: null, cost: null };
 const browserApiCosts: Record<string, ApiCostInfo> = {};
+
+// ───────── 로그인할 때 자동으로 열기 ─────────
+
+let browserLoginItem: LoginItemState = { supported: true, enabled: true, needsApproval: false };
+
+export function getLoginItem(): Promise<LoginItemState> {
+  return inApp ? invoke<LoginItemState>("get_login_item") : Promise.resolve(browserLoginItem);
+}
+
+export function setLoginItem(enabled: boolean): Promise<LoginItemState> {
+  if (inApp) return invoke<LoginItemState>("set_login_item", { enabled });
+  browserLoginItem = { ...browserLoginItem, enabled };
+  return Promise.resolve(browserLoginItem);
+}
 
 // ───────── 히스토리 창 ─────────
 

@@ -4,6 +4,7 @@ import {
   addClaudeAccount,
   addCodexAccount,
   getApiCostInfo,
+  getLoginItem,
   importLegacyHistory,
   listLegacyProfiles,
   moveAccount,
@@ -11,11 +12,12 @@ import {
   removeAccount,
   removeAdminKey,
   setAdminKey,
+  setLoginItem,
   updateAccount,
 } from "../api";
 import { formatAsOf, formatDateRange, formatUsd, t } from "../i18n";
 import { PALETTE } from "../palette";
-import type { Account, ApiCostInfo, LabelKind, LegacyProfile, Settings } from "../types";
+import type { Account, ApiCostInfo, LabelKind, LegacyProfile, LoginItemState, Settings } from "../types";
 import { ChevronIcon } from "./Icons";
 import { LabelBadge } from "./LabelBadge";
 import { Segmented } from "./Segmented";
@@ -70,8 +72,56 @@ export function SettingsView({ settings, accounts, onChange, onBack }: SettingsV
         </p>
       </section>
 
+      <StartupSection />
+
       <LegacyImportSection accounts={accounts} />
     </div>
+  );
+}
+
+/** 로그인할 때 자동으로 열기 */
+function StartupSection() {
+  const [state, setState] = useState<LoginItemState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getLoginItem().then(setState);
+  }, []);
+
+  if (!state) return null;
+
+  const toggle = async (enabled: boolean) => {
+    setError(null);
+    try {
+      setState(await setLoginItem(enabled));
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  return (
+    <section className="setting">
+      <div className="setting-title">{t("startup")}</div>
+      <label className={`switch-row${state.supported ? "" : " disabled"}`}>
+        <span>{t("launchAtLogin")}</span>
+        <input
+          type="checkbox"
+          role="switch"
+          className="switch"
+          checked={state.enabled}
+          disabled={!state.supported}
+          onChange={(event) => toggle(event.target.checked)}
+        />
+      </label>
+      {error && <p className="error-text">{error}</p>}
+      <p className="setting-help">
+        {!state.supported
+          ? t("launchAtLoginDev")
+          : state.needsApproval
+            ? t("launchAtLoginApproval")
+            : t("launchAtLoginHelp")}
+      </p>
+    </section>
   );
 }
 
