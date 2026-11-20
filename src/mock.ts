@@ -47,7 +47,7 @@ export function mockSnapshot(): Snapshot {
       name: "개인",
       label: { kind: "name", text: "" },
       color: "#D97757",
-      plan: "Max 20x",
+      plan: "Ultra",
       weekly: personalWeekly,
       session: null,
       models: [
@@ -94,7 +94,31 @@ export function mockSnapshot(): Snapshot {
   return {
     accounts,
     summary: {
-      claudeCodeToday: { tokens: 1_240_000, costUsd: 12.4 },
+      tokens: [
+        {
+          provider: "claude",
+          total: 2_481_300_000,
+          input: 3_100_000,
+          output: 21_400_000,
+          cacheWrite: 96_800_000,
+          cacheRead: 2_360_000_000,
+          reasoning: 0,
+          today: 61_200_000,
+          since: "2026-10-21",
+        },
+        {
+          provider: "codex",
+          total: 412_700_000,
+          input: 58_300_000,
+          output: 4_100_000,
+          cacheWrite: 0,
+          cacheRead: 350_300_000,
+          reasoning: 1_900_000,
+          today: 9_800_000,
+          since: "2026-11-10",
+        },
+      ],
+      tokensScanning: false,
       apiMonthCostUsd: 3.1,
       services: [
         { name: "Claude", state: "operational" },

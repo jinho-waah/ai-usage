@@ -57,7 +57,17 @@ const strings = {
     extraUsage: "Extra usage",
     recentTrend: "최근 7일",
     recentSpan: "최근 {duration}",
-    claudeCodeToday: "Claude Code 오늘",
+    tokensClaude: "Claude 누적",
+    tokensCodex: "Codex 누적",
+    tokensScanning: "로그에서 토큰을 세는 중…",
+    tokenToday: "오늘",
+    tokenInput: "입력",
+    tokenOutput: "출력",
+    tokenCacheWrite: "캐시 쓰기",
+    tokenCacheRead: "캐시 읽기",
+    tokenReasoning: "추론 (출력에 포함)",
+    tokensSince: "{date}부터 이 Mac에서 쓴 양이에요",
+    tokensHelp: "Claude Code·Codex 로그를 세서 앱에 따로 저장해요. 로그가 지워져도 합계는 남아요.",
     tokens: "{count} 토큰",
     apiThisMonth: "API 이번 달",
     services: "서비스 상태",
@@ -137,7 +147,17 @@ const strings = {
     extraUsage: "Extra usage",
     recentTrend: "Last 7 days",
     recentSpan: "Last {duration}",
-    claudeCodeToday: "Claude Code today",
+    tokensClaude: "Claude total",
+    tokensCodex: "Codex total",
+    tokensScanning: "Counting tokens from logs…",
+    tokenToday: "Today",
+    tokenInput: "Input",
+    tokenOutput: "Output",
+    tokenCacheWrite: "Cache write",
+    tokenCacheRead: "Cache read",
+    tokenReasoning: "Reasoning (in output)",
+    tokensSince: "Used on this Mac since {date}",
+    tokensHelp: "Counted from Claude Code and Codex logs and kept by this app, even after the logs are deleted.",
     tokens: "{count} tokens",
     apiThisMonth: "API this month",
     services: "Service status",
@@ -208,6 +228,11 @@ export function formatTokens(count: number): string {
   return t("tokens", { count: compactNumber.format(count) });
 }
 
+/** 단위 없이 짧게 (예: "1.2M", "24.8억") */
+export function formatCount(count: number): string {
+  return compactNumber.format(count);
+}
+
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export function formatUsd(amount: number): string {
   return usd.format(amount);
@@ -229,6 +254,11 @@ export function formatClock(iso: string): string {
 }
 
 const shortDate = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" });
+/** 로컬 날짜 "YYYY-MM-DD" 를 "2026년 11월 10일" 처럼 */
+export function formatDay(day: string): string {
+  return fullDate.format(new Date(`${day}T00:00:00`));
+}
 /** 기간 표시 (예: "9월 29일 ~ 11월 20일") */
 export function formatDateRange(from: string | null, to: string | null): string {
   if (!from || !to) return "";

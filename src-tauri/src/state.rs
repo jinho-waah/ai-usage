@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 
 use crate::accounts::{self, Account};
 use crate::history::History;
-use crate::model::{AccountStatus, ExtraUsage, Snapshot, UsageReading};
+use crate::model::{AccountStatus, ExtraUsage, Snapshot, Summary, UsageReading};
 use crate::settings::Settings;
 
 /// 계정 하나의 마지막 조회 결과
@@ -44,6 +44,12 @@ pub struct AppState {
     pub refresh_lock: tokio::sync::Mutex<()>,
     /// 사용률 기록 DB. 열지 못했으면 `None` (기록·그래프 없이 동작)
     pub history: Option<History>,
+    /// 기록 DB 파일 경로 (토큰 집계는 별도 스레드에서 자기 연결로 쓴다)
+    pub db_path: PathBuf,
+    /// 팝오버 아래쪽 요약 (토큰·비용·서비스 상태). 각 작업이 자기 칸만 고친다.
+    pub summary: Mutex<Summary>,
+    /// 토큰 집계가 겹치지 않게 잡는 자물쇠. 안에는 마지막으로 집계를 마친 시각.
+    pub token_scan: tokio::sync::Mutex<Option<std::time::Instant>>,
     /// 데모 모드(`AI_USAGE_DEMO=1`): 실제 계정 대신 가짜 데이터를 보여 준다.
     pub demo: bool,
     pub started_at: DateTime<Utc>,

@@ -6,6 +6,16 @@
 //! 3. 1분마다 모든 계정의 사용량을 새로 조회해서 메뉴바와 팝오버에 알린다.
 //! 4. React 화면이 부를 수 있는 명령(`#[tauri::command]`)을 등록한다.
 
+/// 개발 빌드(`npm run tauri dev`)에서만 터미널에 진단 로그를 남긴다. 이메일·조직 이름 같은 개인정보는 넣지 않는다.
+/// (여기, 모듈 선언보다 위에 두면 모든 모듈에서 `dev_log!` 로 쓸 수 있다)
+macro_rules! dev_log {
+    ($($arg:tt)*) => {
+        if cfg!(debug_assertions) {
+            eprintln!("[ai-usage] {}", format!($($arg)*));
+        }
+    };
+}
+
 mod accounts;
 mod claude;
 mod claude_web;
@@ -19,6 +29,7 @@ mod popover;
 mod refresh;
 mod settings;
 mod state;
+mod tokens;
 #[cfg(target_os = "macos")]
 mod webview_js;
 
@@ -33,13 +44,15 @@ use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 
 use crate::accounts::{Account, AccountEdit};
 use crate::history::{History, WindowKind};
-use crate::model::{Provider, Snapshot};
+use crate::model::{Provider, Snapshot, Summary};
 use crate::refresh::TRAY_ID;
 use crate::settings::Settings;
 use crate::state::AppState;
 
 /// 구독 사용량 갱신 주기 (스펙: 1분 고정)
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
+/// 로컬 로그 토큰 집계 간격
+const TOKEN_SCAN_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 // ───────── React 화면에서 부르는 명령 ─────────
 // `#[tauri::command]` 가 붙은 함수는 화면에서 `invoke("함수이름")` 으로 부를 수 있다.
@@ -312,7 +325,8 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let settings_path: PathBuf = config_dir.join("settings.json");
             let accounts_path: PathBuf = config_dir.join("accounts.json");
-            let history = match History::open(&config_dir.join("usage.db")) {
+            let db_path = config_dir.join("usage.db");
+            let history = match History::open(&db_path) {
                 Ok(history) => Some(history),
                 Err(error) => {
                     eprintln!("[ai-usage] 기록 DB 를 열지 못했어요: {error}");
@@ -332,6 +346,9 @@ pub fn run() {
                 logging_in: Mutex::new(HashSet::new()),
                 refresh_lock: tokio::sync::Mutex::new(()),
                 history,
+                db_path,
+                summary: Mutex::new(Summary::default()),
+                token_scan: tokio::sync::Mutex::new(None),
                 demo,
                 started_at,
             });
@@ -360,6 +377,16 @@ pub fn run() {
             refresh::publish(app.handle());
             // Codex 지난 기록을 처음 한 번 가져온다 (이미 했으면 아무것도 안 함)
             backfill_codex_history(app.handle().clone());
+
+            // 로컬 로그 토큰 집계: 시작하자마자 한 번, 그 뒤 5분마다
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(TOKEN_SCAN_INTERVAL);
+                loop {
+                    ticker.tick().await;
+                    refresh::refresh_tokens(&handle, TOKEN_SCAN_INTERVAL / 2).await;
+                }
+            });
 
             // 1분마다 갱신한다. interval 의 첫 tick 은 바로 끝나므로 시작하자마자 한 번 조회한다.
             let handle = app.handle().clone();

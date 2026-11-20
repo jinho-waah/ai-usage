@@ -55,6 +55,12 @@ pub fn toggle(app: &AppHandle, tray_rect: Rect) {
     place_below_tray(&window, tray_rect);
     let _ = window.show();
     let _ = window.set_focus();
+
+    // 팝오버를 열 때 토큰 합계도 새로 모은다 (1분에 한 번까지만)
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::refresh::refresh_tokens(&app, Duration::from_secs(60)).await;
+    });
 }
 
 /// 팝오버를 메뉴바 아이콘 아래에 다시 연다. (로그인을 마친 뒤 결과를 보여 줄 때)

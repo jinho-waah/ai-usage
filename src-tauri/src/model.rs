@@ -161,7 +161,7 @@ pub struct AccountUsage {
     pub label: AccountLabel,
     /// 계정 색 ("#RRGGBB"). 색 점 라벨과 차트에 쓴다.
     pub color: String,
-    /// 플랜 이름 (예: "Max 20x")
+    /// 플랜 이름 (예: "Ultra", "Max", "Pro")
     pub plan: Option<String>,
     pub weekly: Option<UsageWindow>,
     /// 5시간 세션 한도. 이 한도가 없는 플랜이면 `None`.
@@ -198,19 +198,34 @@ pub struct ServiceStatus {
     pub state: ServiceState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// 브랜드(Claude 전체, Codex 전체)별 누적 토큰. 이 Mac 의 Claude Code·Codex 로그 기준.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct TokenCost {
-    pub tokens: u64,
-    pub cost_usd: f64,
+pub struct BrandTokens {
+    pub provider: Provider,
+    /// 캐시를 포함한 합계
+    pub total: u64,
+    /// 캐시를 뺀 입력
+    pub input: u64,
+    pub output: u64,
+    pub cache_write: u64,
+    pub cache_read: u64,
+    /// 추론 토큰 (Codex, 출력에 포함된 값)
+    pub reasoning: u64,
+    /// 오늘(로컬 날짜) 합계
+    pub today: u64,
+    /// 기록이 시작된 날 ("YYYY-MM-DD")
+    pub since: Option<String>,
 }
 
 /// 팝오버 아래쪽 요약.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
-    /// 오늘 Claude Code 실제 토큰과 추정 비용 (로컬 로그 기준)
-    pub claude_code_today: Option<TokenCost>,
+    /// 브랜드별 누적 토큰 (Claude, Codex 순)
+    pub tokens: Vec<BrandTokens>,
+    /// 로그를 집계하는 중이면 true
+    pub tokens_scanning: bool,
     /// 이번 달 API 비용 (Admin API 기준)
     pub api_month_cost_usd: Option<f64>,
     pub services: Vec<ServiceStatus>,

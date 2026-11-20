@@ -21,16 +21,7 @@ use crate::model::{AccountStatus, Provider};
 use crate::state::AppState;
 use crate::{popover, refresh};
 
-/// 개발 빌드(`npm run tauri dev`)에서만 터미널에 진단 로그를 남긴다. 이메일·조직 이름 같은 개인정보는 넣지 않는다.
-macro_rules! dev_log {
-    ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        eprintln!("[ai-usage] {}", format!($($arg)*));
-    };
-}
-
 /// 로그에 쓸 짧은 계정 ID (앞 8글자)
-#[cfg_attr(not(debug_assertions), allow(dead_code))]
 fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }
@@ -199,7 +190,6 @@ pub async fn refresh_account(app: &AppHandle, account: &Account) {
 }
 
 /// 로그용 요약. 응답 본문은 남기지 않는다.
-#[cfg_attr(not(debug_assertions), allow(dead_code))]
 fn describe(outcome: &FetchOutcome) -> String {
     match outcome {
         FetchOutcome::Json(_) => "ok (json)".to_string(),

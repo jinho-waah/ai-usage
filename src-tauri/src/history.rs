@@ -40,6 +40,82 @@ pub struct Sample {
     pub used_percent: f64,
 }
 
+/// 브랜드 하나의 누적 토큰 (DB 합계)
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrandTokenTotals {
+    /// "claude" | "codex"
+    pub provider: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_write: u64,
+    pub cache_read: u64,
+    pub reasoning: u64,
+    /// 캐시를 포함한 합계
+    pub total: u64,
+    /// 오늘(로컬 날짜) 합계
+    pub today: u64,
+    /// 기록이 시작된 날 ("YYYY-MM-DD")
+    pub since: Option<String>,
+}
+
+/// DB 표를 만든다. 사용률 기록(History)과 토큰 집계(tokens.rs)가 같은 파일을 쓰므로 한곳에서 정의한다.
+pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;
+             CREATE TABLE IF NOT EXISTS usage_samples (
+                 account_id   TEXT NOT NULL,
+                 window       TEXT NOT NULL,      -- 'weekly' | 'session'
+                 at           INTEGER NOT NULL,   -- 유닉스 시각(초)
+                 used_percent REAL NOT NULL,      -- 사용한 비율 0~100
+                 source       TEXT NOT NULL,      -- 'live' | 'codex-log' | 'claude-usage-app'
+                 PRIMARY KEY (account_id, window, at)
+             );
+             CREATE TABLE IF NOT EXISTS meta (
+                 key   TEXT PRIMARY KEY,
+                 value TEXT NOT NULL
+             );
+             -- 실제 토큰 사용량: 브랜드·날짜·시간·모델·프로젝트·세션별 합계
+             CREATE TABLE IF NOT EXISTS token_usage (
+                 provider    TEXT NOT NULL,       -- 'claude' | 'codex'
+                 day         TEXT NOT NULL,       -- 로컬 날짜 'YYYY-MM-DD'
+                 hour        INTEGER NOT NULL,    -- 로컬 시간 0~23 (히트맵용)
+                 model       TEXT NOT NULL,
+                 project     TEXT NOT NULL,       -- 작업 폴더
+                 session     TEXT NOT NULL,       -- 대화(세션) ID
+                 input       INTEGER NOT NULL DEFAULT 0,  -- 캐시를 뺀 입력
+                 output      INTEGER NOT NULL DEFAULT 0,
+                 cache_write INTEGER NOT NULL DEFAULT 0,
+                 cache_read  INTEGER NOT NULL DEFAULT 0,
+                 reasoning   INTEGER NOT NULL DEFAULT 0,  -- Codex 추론 토큰 (출력에 포함된 값)
+                 total       INTEGER NOT NULL DEFAULT 0,  -- 캐시 포함 합계
+                 PRIMARY KEY (provider, day, hour, model, project, session)
+             );
+             -- 이미 센 Claude 응답 (같은 응답을 두 번 세지 않게)
+             CREATE TABLE IF NOT EXISTS token_seen (
+                 key TEXT PRIMARY KEY
+             );
+             -- Codex 세션별로 마지막에 본 누적 토큰 (증가분만 더하려고)
+             CREATE TABLE IF NOT EXISTS codex_sessions (
+                 session_id  TEXT PRIMARY KEY,
+                 input       INTEGER NOT NULL,
+                 cached      INTEGER NOT NULL,
+                 cache_write INTEGER NOT NULL,
+                 output      INTEGER NOT NULL,
+                 reasoning   INTEGER NOT NULL,
+                 total       INTEGER NOT NULL
+             );
+             -- 로그 파일마다 어디까지 읽었는지
+             CREATE TABLE IF NOT EXISTS log_files (
+                 path    TEXT PRIMARY KEY,
+                 offset  INTEGER NOT NULL,
+                 context TEXT NOT NULL DEFAULT ''   -- Codex: 이어서 읽을 때 필요한 세션·모델·폴더
+             );",
+        )
+        .map_err(|error| error.to_string())
+}
+
 pub struct History {
     connection: Mutex<Connection>,
 }
@@ -60,26 +136,41 @@ impl History {
     }
 
     fn prepare(connection: Connection) -> Result<History, String> {
-        connection
-            .execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 CREATE TABLE IF NOT EXISTS usage_samples (
-                     account_id   TEXT NOT NULL,
-                     window       TEXT NOT NULL,      -- 'weekly' | 'session'
-                     at           INTEGER NOT NULL,   -- 유닉스 시각(초)
-                     used_percent REAL NOT NULL,      -- 사용한 비율 0~100
-                     source       TEXT NOT NULL,      -- 'live' | 'codex-log' | 'claude-usage-app'
-                     PRIMARY KEY (account_id, window, at)
-                 );
-                 CREATE TABLE IF NOT EXISTS meta (
-                     key   TEXT PRIMARY KEY,
-                     value TEXT NOT NULL
-                 );",
-            )
-            .map_err(|error| error.to_string())?;
+        ensure_schema(&connection)?;
         Ok(History {
             connection: Mutex::new(connection),
         })
+    }
+
+    /// 브랜드(Claude, Codex)별 누적 토큰. 토큰 집계(tokens.rs)가 채운 표에서 합계만 읽는다.
+    /// `today` 는 로컬 날짜 "YYYY-MM-DD".
+    pub fn token_totals(&self, today: &str) -> Result<Vec<BrandTokenTotals>, String> {
+        let connection = self.connection.lock().unwrap();
+        let mut statement = connection
+            .prepare(
+                "SELECT provider, SUM(input), SUM(output), SUM(cache_write), SUM(cache_read),
+                        SUM(reasoning), SUM(total), MIN(day),
+                        SUM(CASE WHEN day = ?1 THEN total ELSE 0 END)
+                 FROM token_usage GROUP BY provider ORDER BY provider",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(params![today], |row| {
+                Ok(BrandTokenTotals {
+                    provider: row.get(0)?,
+                    input: row.get::<_, i64>(1)?.max(0) as u64,
+                    output: row.get::<_, i64>(2)?.max(0) as u64,
+                    cache_write: row.get::<_, i64>(3)?.max(0) as u64,
+                    cache_read: row.get::<_, i64>(4)?.max(0) as u64,
+                    reasoning: row.get::<_, i64>(5)?.max(0) as u64,
+                    total: row.get::<_, i64>(6)?.max(0) as u64,
+                    since: row.get(7)?,
+                    today: row.get::<_, i64>(8)?.max(0) as u64,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
     }
 
     /// 사용률을 기록한다. 바로 앞 기록과 값이 같으면 남기지 않는다. 기록했으면 true.

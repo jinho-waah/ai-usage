@@ -11,10 +11,10 @@ use crate::codex::{self, ApiOutcome};
 use crate::history::WindowKind;
 use crate::menubar::MenubarModel;
 use crate::model::{
-    AccountStatus, AccountUsage, Provider, Snapshot, Summary, TrendPoint, UsageWindow,
+    AccountStatus, AccountUsage, BrandTokens, Provider, Snapshot, Summary, TrendPoint, UsageWindow,
 };
 use crate::state::{AccountData, AppState};
-use crate::{claude_web, mock};
+use crate::{claude_web, mock, tokens};
 
 pub const TRAY_ID: &str = "main";
 
@@ -154,7 +154,8 @@ pub fn publish(app: &AppHandle) -> Snapshot {
         let data = state.account_data.lock().unwrap().clone();
         let accounts = state.accounts();
         let trends = trends(&state, &accounts, &data, now);
-        build_snapshot(&accounts, &data, &trends, now)
+        let summary = state.summary.lock().unwrap().clone();
+        build_snapshot(&accounts, &data, &trends, summary, now)
     };
     *state.snapshot.lock().unwrap() = snapshot.clone();
     update_menubar(app);
@@ -167,6 +168,7 @@ pub fn build_snapshot(
     accounts: &[Account],
     data: &HashMap<String, AccountData>,
     trends: &HashMap<String, Vec<TrendPoint>>,
+    summary: Summary,
     now: DateTime<Utc>,
 ) -> Snapshot {
     let accounts = accounts
@@ -205,14 +207,92 @@ pub fn build_snapshot(
 
     Snapshot {
         accounts,
-        // Claude Code 로그, API 비용, 서비스 상태는 M3·M5 에서 붙인다
-        summary: Summary {
-            claude_code_today: None,
-            api_month_cost_usd: None,
-            services: Vec::new(),
-        },
+        summary,
         updated_at: now,
     }
+}
+
+/// 로컬 로그에서 새로 생긴 토큰 사용량을 모으고, 누적 합계를 요약에 넣어 알린다.
+///
+/// - 다른 집계가 진행 중이면 그냥 돌아간다 (겹치지 않게).
+/// - 마지막 집계 후 `min_gap` 이 안 지났으면 건너뛴다 (팝오버를 자주 열어도 부담 없게).
+/// - 처음 한 번은 로그 전체(수 GB)를 읽어서 몇 분 걸릴 수 있다. 그동안 화면에는 "집계 중"이 보인다.
+pub async fn refresh_tokens(app: &AppHandle, min_gap: std::time::Duration) {
+    let state = app.state::<AppState>();
+    if state.demo || state.history.is_none() {
+        return;
+    }
+    let Ok(mut last_scan) = state.token_scan.try_lock() else {
+        return;
+    };
+    if last_scan.is_some_and(|at| at.elapsed() < min_gap) {
+        return;
+    }
+
+    state.summary.lock().unwrap().tokens_scanning = true;
+    publish(app);
+
+    let db_path = state.db_path.clone();
+    let started = std::time::Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        tokens::scan(&db_path, &tokens::LogDirs::default_locations())
+    })
+    .await
+    .map_err(|error| error.to_string())
+    .and_then(|result| result);
+    match &result {
+        Ok(report) => dev_log!(
+            "토큰 집계 끝: 파일 {}개, Claude {}건, Codex {}건, {:.1}초",
+            report.files_read,
+            report.claude_records,
+            report.codex_records,
+            started.elapsed().as_secs_f64()
+        ),
+        Err(error) => eprintln!("[ai-usage] 토큰 집계 실패: {error}"),
+    }
+    *last_scan = Some(std::time::Instant::now());
+
+    let totals = state
+        .history
+        .as_ref()
+        .and_then(|history| {
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            history.token_totals(&today).ok()
+        })
+        .unwrap_or_default();
+    {
+        let mut summary = state.summary.lock().unwrap();
+        summary.tokens = brand_tokens(totals);
+        summary.tokens_scanning = false;
+    }
+    publish(app);
+}
+
+/// DB 합계를 화면용으로 바꾼다. Claude 먼저, 그다음 Codex.
+fn brand_tokens(totals: Vec<crate::history::BrandTokenTotals>) -> Vec<BrandTokens> {
+    let mut brands: Vec<BrandTokens> = totals
+        .into_iter()
+        .filter_map(|total| {
+            let provider = match total.provider.as_str() {
+                "claude" => Provider::Claude,
+                "codex" => Provider::Codex,
+                _ => return None,
+            };
+            Some(BrandTokens {
+                provider,
+                total: total.total,
+                input: total.input,
+                output: total.output,
+                cache_write: total.cache_write,
+                cache_read: total.cache_read,
+                reasoning: total.reasoning,
+                today: total.today,
+                since: total.since,
+            })
+        })
+        .collect();
+    brands.sort_by_key(|brand| brand.provider != Provider::Claude);
+    brands
 }
 
 /// 현재 스냅샷과 설정으로 메뉴바 아이콘을 다시 그린다.
@@ -259,6 +339,7 @@ mod tests {
             &[logged_out, logged_in],
             &HashMap::new(),
             &HashMap::new(),
+            Summary::default(),
             Utc::now(),
         );
         assert_eq!(snapshot.accounts[0].status, AccountStatus::NeedsLogin);
@@ -289,7 +370,7 @@ mod tests {
                 ..AccountData::default()
             },
         );
-        let snapshot = build_snapshot(&[account], &data, &HashMap::new(), now);
+        let snapshot = build_snapshot(&[account], &data, &HashMap::new(), Summary::default(), now);
         let weekly = snapshot.accounts[0].weekly.as_ref().unwrap();
         assert!((weekly.elapsed_percent.unwrap() - 50.0).abs() < 0.1);
         assert!(weekly.ahead_of_pace);

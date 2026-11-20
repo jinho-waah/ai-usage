@@ -33,7 +33,7 @@ pub struct Account {
     /// 조직 이름. 설정 화면에서 어느 계정인지 알아보는 용도.
     #[serde(default)]
     pub org_name: Option<String>,
-    /// 플랜 이름 (예: "Max 20x")
+    /// 플랜 이름 (예: "Ultra", "Max", "Pro")
     #[serde(default)]
     pub plan: Option<String>,
 }

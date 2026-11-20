@@ -102,13 +102,28 @@ export interface ServiceStatus {
   state: ServiceState;
 }
 
-export interface TokenCost {
-  tokens: number;
-  costUsd: number;
+/** 브랜드(Claude 전체, Codex 전체)별 누적 토큰. 이 Mac 의 Claude Code·Codex 로그 기준 */
+export interface BrandTokens {
+  provider: Provider;
+  /** 캐시를 포함한 합계 */
+  total: number;
+  /** 캐시를 뺀 입력 */
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  /** 추론 토큰 (Codex, 출력에 포함된 값) */
+  reasoning: number;
+  /** 오늘 합계 */
+  today: number;
+  /** 기록이 시작된 날 "YYYY-MM-DD" */
+  since: string | null;
 }
 
 export interface Summary {
-  claudeCodeToday: TokenCost | null;
+  tokens: BrandTokens[];
+  /** 로그를 집계하는 중 */
+  tokensScanning: boolean;
   apiMonthCostUsd: number | null;
   services: ServiceStatus[];
 }

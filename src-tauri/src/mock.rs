@@ -8,8 +8,8 @@
 use chrono::{DateTime, Duration, Timelike, Utc};
 
 use crate::model::{
-    AccountLabel, AccountStatus, AccountUsage, ExtraUsage, LabelKind, ModelUsage, Provider,
-    ServiceState, ServiceStatus, Snapshot, Summary, TokenCost, TrendPoint, UsageWindow,
+    AccountLabel, AccountStatus, AccountUsage, BrandTokens, ExtraUsage, LabelKind, ModelUsage,
+    Provider, ServiceState, ServiceStatus, Snapshot, Summary, TrendPoint, UsageWindow,
 };
 
 const WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -54,7 +54,7 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
                 text: String::new(),
             },
             color: "#D97757".into(),
-            plan: Some("Max 20x".into()),
+            plan: Some("Ultra".into()),
             trend: weekly_trend(&personal_weekly, now, 30.0, 72.0),
             weekly: Some(personal_weekly),
             session: None,
@@ -117,10 +117,31 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
     Snapshot {
         accounts,
         summary: Summary {
-            claude_code_today: Some(TokenCost {
-                tokens: 1_240_000,
-                cost_usd: 12.4,
-            }),
+            tokens: vec![
+                BrandTokens {
+                    provider: Provider::Claude,
+                    total: 2_481_300_000,
+                    input: 3_100_000,
+                    output: 21_400_000,
+                    cache_write: 96_800_000,
+                    cache_read: 2_360_000_000,
+                    reasoning: 0,
+                    today: 61_200_000,
+                    since: Some("2026-10-21".into()),
+                },
+                BrandTokens {
+                    provider: Provider::Codex,
+                    total: 412_700_000,
+                    input: 58_300_000,
+                    output: 4_100_000,
+                    cache_write: 0,
+                    cache_read: 350_300_000,
+                    reasoning: 1_900_000,
+                    today: 9_800_000,
+                    since: Some("2026-11-10".into()),
+                },
+            ],
+            tokens_scanning: false,
             api_month_cost_usd: Some(3.1),
             services: vec![
                 ServiceStatus {
