@@ -48,11 +48,16 @@ pub fn record_history(state: &AppState) {
         else {
             continue;
         };
+        let sample = |window: &crate::model::RawWindow| crate::history::Sample {
+            at,
+            used_percent: window.percent,
+            resets_at: window.resets_at,
+        };
         if let Some(window) = &usage.weekly {
-            let _ = history.record(&account_id, WindowKind::Weekly, at, window.percent, "live");
+            let _ = history.record(&account_id, WindowKind::Weekly, &sample(window), "live");
         }
         if let Some(window) = &usage.session {
-            let _ = history.record(&account_id, WindowKind::Session, at, window.percent, "live");
+            let _ = history.record(&account_id, WindowKind::Session, &sample(window), "live");
         }
     }
 }

@@ -1,7 +1,19 @@
 // 브라우저 미리보기(`npm run dev`)용 가짜 데이터.
 // 실제 앱에서는 쓰지 않는다. 앱 안의 가짜 데이터는 Rust(src-tauri/src/mock.rs)가 만든다.
 
-import type { Account, AccountUsage, Settings, Snapshot, TrendPoint, UsageWindow } from "./types";
+import type {
+  Account,
+  AccountUsage,
+  CyclePoint,
+  HistoryCycle,
+  HistoryData,
+  HistoryRange,
+  HistorySeries,
+  Settings,
+  Snapshot,
+  TrendPoint,
+  UsageWindow,
+} from "./types";
 
 const HOUR = 3_600_000;
 const WEEK_SECONDS = 7 * 24 * 3600;
@@ -144,4 +156,119 @@ export function mockAccounts(): Account[] {
     orgName: account.provider === "claude" ? `${account.name}@example.com's Organization` : null,
     plan: account.plan,
   }));
+}
+
+// ───────── 히스토리 창 미리보기 ─────────
+
+const DAY = 24 * HOUR;
+const WEEK = 7 * DAY;
+
+/** 매번 같은 값이 나오는 간단한 난수 (미리보기 그림이 새로 고칠 때마다 바뀌지 않게) */
+function seeded(seed: number) {
+  let state = seed;
+  return () => {
+    state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return state / 2_147_483_648;
+  };
+}
+
+/** 계정 하나의 주간 기록: 6주치. 낮 시간에만 조금씩 오르고, 매주 같은 시각에 0% 로 리셋. */
+function mockWeekly(seed: number, nextResetInHours: number, now: number) {
+  const random = seeded(seed);
+  const nextReset = now + nextResetInHours * HOUR;
+  const cycles: { start: number; end: number; points: { at: number; percent: number }[] }[] = [];
+  for (let k = 5; k >= 0; k--) {
+    const end = nextReset - k * WEEK;
+    const start = end - WEEK;
+    const target = 35 + random() * 60;
+    const points = [{ at: start, percent: 0 }];
+    let percent = 0;
+    for (let at = start + HOUR; at < Math.min(end, now); at += HOUR) {
+      const hour = new Date(at).getHours();
+      if (hour >= 10 && hour <= 23 && random() < 0.45) {
+        percent = Math.min(100, percent + (target / 70) * (0.5 + random()));
+        points.push({ at, percent: Math.round(percent) });
+      }
+    }
+    cycles.push({ start, end, points });
+  }
+  return cycles;
+}
+
+export function mockHistory(range: HistoryRange): HistoryData {
+  const now = Date.now();
+  const accounts = mockAccounts().map(({ id, provider, name, label, color }) => ({ id, provider, name, label, color }));
+  const generated = accounts.map((account, index) => ({
+    account,
+    cycles: mockWeekly(index + 7, 30 + index * 41, now),
+  }));
+
+  const currentStarts = generated.map(({ cycles }) => cycles[cycles.length - 1].start);
+  const rangeStart =
+    range === "cycle"
+      ? Math.min(...currentStarts)
+      : range === "7d"
+        ? now - WEEK
+        : range === "30d"
+          ? now - 30 * DAY
+          : Math.min(...generated.map(({ cycles }) => cycles[0].points[1]?.at ?? cycles[0].start));
+
+  const weekly: HistorySeries[] = generated.map(({ account, cycles }) => {
+    const all = cycles.flatMap((cycle) => cycle.points);
+    const before = all.filter((point) => point.at < rangeStart).pop();
+    const inside = all.filter((point) => point.at >= rangeStart && point.at <= now);
+    const points: TrendPoint[] = [
+      ...(before ? [{ at: new Date(rangeStart).toISOString(), percent: before.percent }] : []),
+      ...inside.map((point) => ({ at: new Date(point.at).toISOString(), percent: point.percent })),
+    ];
+    const last = points[points.length - 1];
+    if (last) points.push({ at: new Date(now).toISOString(), percent: last.percent });
+    const resets = cycles
+      .slice(1)
+      .map((cycle) => cycle.start)
+      .filter((at) => at >= rangeStart && at <= now)
+      .map((at) => new Date(at).toISOString());
+    return { accountId: account.id, points, resets };
+  });
+
+  const cycles: HistoryCycle[] = generated.flatMap(({ account, cycles }) =>
+    cycles
+      .filter((cycle) => cycle.end > rangeStart && cycle.start < now)
+      .map((cycle) => {
+        const points: CyclePoint[] = cycle.points.map((point) => ({
+          hours: (point.at - cycle.start) / HOUR,
+          percent: point.percent,
+        }));
+        const endHours = (Math.min(cycle.end, now) - cycle.start) / HOUR;
+        const last = points[points.length - 1];
+        if (last && endHours > last.hours) points.push({ hours: endHours, percent: last.percent });
+        return {
+          accountId: account.id,
+          start: new Date(cycle.start).toISOString(),
+          end: new Date(cycle.end).toISOString(),
+          current: cycle.end > now,
+          startKnown: true,
+          points,
+        };
+      }),
+  );
+
+  // 5시간 한도가 있는 계정(회사)만
+  const sessionAccount = accounts[1];
+  const random = seeded(99);
+  const sessionPoints: TrendPoint[] = [];
+  for (let at = Math.max(rangeStart, now - 3 * DAY); at <= now; at += HOUR) {
+    const inWindow = Math.floor((at / HOUR) % 5);
+    const percent = inWindow === 0 ? 0 : Math.min(100, Math.round(inWindow * 18 * (0.6 + random())));
+    sessionPoints.push({ at: new Date(at).toISOString(), percent });
+  }
+
+  return {
+    accounts,
+    rangeStart: new Date(rangeStart).toISOString(),
+    rangeEnd: new Date(now).toISOString(),
+    weekly,
+    session: sessionAccount ? [{ accountId: sessionAccount.id, points: sessionPoints, resets: [] }] : [],
+    cycles,
+  };
 }

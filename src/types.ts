@@ -150,6 +150,53 @@ export interface Snapshot {
   updatedAt: string;
 }
 
+// ───────── 히스토리 창 ─────────
+
+/** 기간: 이번 주기, 7일, 30일, 전체 */
+export type HistoryRange = "cycle" | "7d" | "30d" | "all";
+
+export interface HistoryAccount {
+  id: string;
+  provider: Provider;
+  name: string;
+  label: AccountLabel;
+  color: string;
+}
+
+/** 계정 하나의 사용률 추이 (사용한 양 %) */
+export interface HistorySeries {
+  accountId: string;
+  points: TrendPoint[];
+  /** 기간 안의 리셋 시각 */
+  resets: string[];
+}
+
+/** 주기 시작 후 지난 시간과 사용률 */
+export interface CyclePoint {
+  hours: number;
+  percent: number;
+}
+
+/** 주기 하나의 소진 곡선 */
+export interface HistoryCycle {
+  accountId: string;
+  start: string;
+  end: string;
+  current: boolean;
+  /** 시작 시각이 정확한 리셋 시각인지 (아니면 추정) */
+  startKnown: boolean;
+  points: CyclePoint[];
+}
+
+export interface HistoryData {
+  accounts: HistoryAccount[];
+  rangeStart: string;
+  rangeEnd: string;
+  weekly: HistorySeries[];
+  session: HistorySeries[];
+  cycles: HistoryCycle[];
+}
+
 export type MenubarStyle = "bars" | "numbers";
 export type PercentMode = "used" | "remaining";
 

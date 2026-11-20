@@ -11,9 +11,11 @@ use uuid::Uuid;
 
 use crate::model::{AccountLabel, LabelKind, Provider};
 
-/// 새 계정에 차례로 붙여 줄 색
+/// 계정 색 고르기 목록. 새 계정에는 아직 안 쓴 색을 이 순서로 붙여 준다.
+/// 그래프에서 색각 이상이 있어도 서로 구분되도록 검사한 8색이다 (순서가 구분을 돕는다).
+/// 다크 모드 그래프에서는 화면(history/chartColors.ts)이 짝이 되는 어두운 배경용 색으로 바꿔 그린다.
 pub const PALETTE: [&str; 8] = [
-    "#D97757", "#6A9BCC", "#10A37F", "#B07CC6", "#D4A72C", "#E0607E", "#4FA3A5", "#8C8C8C",
+    "#EB6834", "#2A78D6", "#1BAF7A", "#EDA100", "#E87BA4", "#008300", "#6250D6", "#E34948",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -38,6 +40,40 @@ pub struct Account {
     pub plan: Option<String>,
 }
 
+/// 다른 계정과 비슷해 보이지 않는 색. `preferred` 가 비어 있으면 그것, 아니면 목록에서 아직 안 쓴 첫 색.
+fn unused_color(existing: &[Account], preferred: Option<&str>) -> String {
+    let taken = |candidate: &str| {
+        existing
+            .iter()
+            .any(|account| colors_look_alike(&account.color, candidate))
+    };
+    preferred
+        .into_iter()
+        .chain(PALETTE)
+        .find(|candidate| !taken(candidate))
+        .unwrap_or(PALETTE[existing.len() % PALETTE.len()])
+        .to_string()
+}
+
+/// 두 색이 거의 같아 보이는지 (RGB 거리로 대략 판단)
+fn colors_look_alike(a: &str, b: &str) -> bool {
+    let rgb = |hex: &str| -> Option<(f64, f64, f64)> {
+        let hex = hex.strip_prefix('#')?;
+        if hex.len() != 6 {
+            return None;
+        }
+        let channel =
+            |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16).ok().map(f64::from);
+        Some((channel(0..2)?, channel(2..4)?, channel(4..6)?))
+    };
+    match (rgb(a), rgb(b)) {
+        (Some((r1, g1, b1)), Some((r2, g2, b2))) => {
+            ((r1 - r2).powi(2) + (g1 - g2).powi(2) + (b1 - b2).powi(2)).sqrt() < 80.0
+        }
+        _ => a.eq_ignore_ascii_case(b),
+    }
+}
+
 impl Account {
     /// 새 Claude 계정. 이름·라벨·색은 기본값으로 채우고, 로그인 뒤 사용자가 바꿀 수 있다.
     pub fn new_claude(existing: &[Account]) -> Account {
@@ -50,7 +86,7 @@ impl Account {
                 kind: LabelKind::Name,
                 text: String::new(),
             },
-            color: PALETTE[existing.len() % PALETTE.len()].to_string(),
+            color: unused_color(existing, None),
             org_id: None,
             org_name: None,
             plan: None,
@@ -58,7 +94,8 @@ impl Account {
     }
 
     /// 새 Codex 계정. Codex CLI 로그인 하나를 읽으므로 하나만 둔다.
-    pub fn new_codex() -> Account {
+    /// 색은 OpenAI 초록을 쓰되, 비슷한 색을 쓰는 계정이 이미 있으면 다른 색.
+    pub fn new_codex(existing: &[Account]) -> Account {
         Account {
             id: Uuid::new_v4().to_string(),
             provider: Provider::Codex,
@@ -67,7 +104,7 @@ impl Account {
                 kind: LabelKind::Name,
                 text: String::new(),
             },
-            color: "#10A37F".to_string(),
+            color: unused_color(existing, Some("#10A37F")),
             org_id: None,
             org_name: None,
             plan: None,
@@ -175,6 +212,25 @@ mod tests {
         assert_eq!(first.label.kind, LabelKind::Name);
         assert_ne!(first.color, second.color);
         assert!(first.data_store_id().is_some());
+    }
+
+    #[test]
+    fn default_colors_avoid_look_alikes() {
+        // 예전 기본색(주황·파랑·초록)을 쓰는 계정들이 있으면, 새 계정은 비슷한 색을 피한다
+        let mut existing = vec![
+            Account::new_claude(&[]),
+            Account::new_claude(&[]),
+            Account::new_claude(&[]),
+        ];
+        existing[0].color = "#D97757".into();
+        existing[1].color = "#6A9BCC".into();
+        existing[2].color = "#10A37F".into();
+        let next = Account::new_claude(&existing);
+        assert_eq!(next.color, "#EDA100", "주황·파랑·초록과 비슷한 색은 건너뜀");
+
+        // Codex 는 OpenAI 초록이 비어 있으면 그것, 비슷한 초록이 이미 있으면 다른 색
+        assert_eq!(Account::new_codex(&[]).color, "#10A37F");
+        assert_ne!(Account::new_codex(&existing).color, "#10A37F");
     }
 
     #[test]

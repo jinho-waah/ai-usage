@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openHistory } from "../api";
 import { formatAsOf, formatCount, formatDay, formatTokens, formatUpdated, formatUsd, t } from "../i18n";
 import type { BrandTokens, Summary } from "../types";
 import { ChevronIcon } from "./Icons";
@@ -56,7 +57,7 @@ export function Footer({ summary, updatedAt, now, onQuit }: FooterProps) {
       <div className="footer-bar">
         <span className="updated">{formatUpdated(updatedAt, now)}</span>
         <div className="footer-actions">
-          <button className="text-button" disabled title={t("comingLater")}>
+          <button className="text-button" onClick={() => openHistory()}>
             {t("history")}
           </button>
           <button className="text-button" onClick={onQuit}>

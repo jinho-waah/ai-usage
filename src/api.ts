@@ -6,13 +6,35 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { mockAccounts, mockSettings, mockSnapshot } from "./mock";
-import type { Account, AccountEdit, ApiCostInfo, LegacyProfile, Settings, Snapshot } from "./types";
+import { mockAccounts, mockHistory, mockSettings, mockSnapshot } from "./mock";
+import type {
+  Account,
+  AccountEdit,
+  ApiCostInfo,
+  HistoryData,
+  HistoryRange,
+  LegacyProfile,
+  Settings,
+  Snapshot,
+} from "./types";
 
 const inApp = isTauri();
 let browserSettings: Settings = mockSettings();
 let browserAccounts: Account[] = mockAccounts();
 let browserApiCost: ApiCostInfo = { configured: false, keyHint: null, error: null, cost: null };
+
+// ───────── 히스토리 창 ─────────
+
+export function getHistory(range: HistoryRange): Promise<HistoryData> {
+  return inApp ? invoke<HistoryData>("get_history", { range }) : Promise.resolve(mockHistory(range));
+}
+
+/** 히스토리 창을 연다 (이미 열려 있으면 앞으로). 브라우저 미리보기에서는 새 탭. */
+export function openHistory(): Promise<void> {
+  if (inApp) return invoke("open_history");
+  window.open(`${location.pathname}#history`, "_blank");
+  return Promise.resolve();
+}
 
 // ───────── Claude API 비용 (Admin API 키) ─────────
 

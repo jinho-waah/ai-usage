@@ -38,7 +38,12 @@ impl WindowKind {
 pub struct Sample {
     pub at: DateTime<Utc>,
     pub used_percent: f64,
+    /// 그때 알려진 다음 리셋 시각. 주기(사이클)를 정확히 나누는 데 쓴다. 모르면 `None` (예전 기록)
+    pub resets_at: Option<DateTime<Utc>>,
 }
+
+/// 같은 주기인지 볼 때 리셋 시각 차이를 이만큼까지는 같은 것으로 본다 (Codex 는 몇 초씩 흔들린다)
+const SAME_RESET_TOLERANCE_SECONDS: i64 = 60 * 60;
 
 /// 브랜드 하나의 누적 토큰 (DB 합계)
 #[derive(Debug, Clone, PartialEq)]
@@ -113,7 +118,17 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
                  context TEXT NOT NULL DEFAULT ''   -- Codex: 이어서 읽을 때 필요한 세션·모델·폴더
              );",
         )
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    // 예전 DB 에는 리셋 시각 열이 없다 → 덧붙인다 (예전 기록은 비어 있음)
+    if connection
+        .prepare("SELECT resets_at FROM usage_samples LIMIT 0")
+        .is_err()
+    {
+        connection
+            .execute_batch("ALTER TABLE usage_samples ADD COLUMN resets_at INTEGER;")
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 pub struct History {
@@ -173,41 +188,117 @@ impl History {
             .map_err(|error| error.to_string())
     }
 
-    /// 사용률을 기록한다. 바로 앞 기록과 값이 같으면 남기지 않는다. 기록했으면 true.
+    /// 사용률을 기록한다. 바로 앞 기록과 값이 같으면 남기지 않는다.
+    /// (값이 같아도 리셋 시각이 바뀌었으면 새 주기가 시작된 것이라 남긴다) 기록했으면 true.
     pub fn record(
         &self,
         account_id: &str,
         window: WindowKind,
-        at: DateTime<Utc>,
-        used_percent: f64,
+        sample: &Sample,
         source: &str,
     ) -> Result<bool, String> {
         let connection = self.connection.lock().unwrap();
-        let previous: Option<f64> = connection
+        let previous: Option<(f64, Option<i64>)> = connection
             .query_row(
-                "SELECT used_percent FROM usage_samples
+                "SELECT used_percent, resets_at FROM usage_samples
                  WHERE account_id = ?1 AND window = ?2 AND at <= ?3
                  ORDER BY at DESC LIMIT 1",
-                params![account_id, window.as_str(), at.timestamp()],
-                |row| row.get(0),
+                params![account_id, window.as_str(), sample.at.timestamp()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(|error| error.to_string())?;
-        if previous.is_some_and(|previous| (previous - used_percent).abs() < SAME_VALUE_TOLERANCE) {
-            return Ok(false);
+        if let Some((previous_percent, previous_reset)) = previous {
+            let same_value = (previous_percent - sample.used_percent).abs() < SAME_VALUE_TOLERANCE;
+            let reset_changed = match (previous_reset, sample.resets_at) {
+                (Some(before), Some(now)) => {
+                    (now.timestamp() - before).abs() > SAME_RESET_TOLERANCE_SECONDS
+                }
+                _ => false,
+            };
+            if same_value && !reset_changed {
+                return Ok(false);
+            }
         }
         connection
             .execute(
-                "INSERT OR REPLACE INTO usage_samples (account_id, window, at, used_percent, source)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![account_id, window.as_str(), at.timestamp(), used_percent, source],
+                "INSERT OR REPLACE INTO usage_samples (account_id, window, at, used_percent, source, resets_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    account_id,
+                    window.as_str(),
+                    sample.at.timestamp(),
+                    sample.used_percent,
+                    source,
+                    sample.resets_at.map(|at| at.timestamp())
+                ],
             )
             .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
+    /// `from` ~ `to` 사이의 기록. `from` 이 있으면 그 직전 기록 하나도 맨 앞에 붙인다 (그래프가 기간 시작부터 이어지게).
+    pub fn samples(
+        &self,
+        account_id: &str,
+        window: WindowKind,
+        from: Option<DateTime<Utc>>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<Sample>, String> {
+        let connection = self.connection.lock().unwrap();
+        let from_seconds = from.map(|from| from.timestamp()).unwrap_or(i64::MIN);
+        let read = |row: &rusqlite::Row| -> rusqlite::Result<(i64, f64, Option<i64>)> {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        };
+
+        let mut rows: Vec<(i64, f64, Option<i64>)> = Vec::new();
+        if from.is_some()
+            && let Some(before) = connection
+                .query_row(
+                    "SELECT at, used_percent, resets_at FROM usage_samples
+                     WHERE account_id = ?1 AND window = ?2 AND at < ?3
+                     ORDER BY at DESC LIMIT 1",
+                    params![account_id, window.as_str(), from_seconds],
+                    read,
+                )
+                .optional()
+                .map_err(|error| error.to_string())?
+        {
+            rows.push(before);
+        }
+        let mut statement = connection
+            .prepare(
+                "SELECT at, used_percent, resets_at FROM usage_samples
+                 WHERE account_id = ?1 AND window = ?2 AND at >= ?3 AND at <= ?4
+                 ORDER BY at",
+            )
+            .map_err(|error| error.to_string())?;
+        let found = statement
+            .query_map(
+                params![account_id, window.as_str(), from_seconds, to.timestamp()],
+                read,
+            )
+            .map_err(|error| error.to_string())?;
+        for row in found {
+            rows.push(row.map_err(|error| error.to_string())?);
+        }
+
+        let time = |seconds: i64| Utc.timestamp_opt(seconds, 0).single();
+        Ok(rows
+            .into_iter()
+            .filter_map(|(at, used_percent, resets_at)| {
+                Some(Sample {
+                    at: time(at)?,
+                    used_percent,
+                    resets_at: resets_at.and_then(time),
+                })
+            })
+            .collect())
+    }
+
     /// 지난 기록을 한꺼번에 넣는다 (Codex 로그, 원본 앱 기록 가져오기).
-    /// 값이 바뀌는 지점만 남겨서 넣고, 같은 시각 기록이 이미 있으면 건너뛴다. 넣은 개수를 돌려준다.
+    /// 값이 바뀌는 지점만 남겨서 넣는다. 같은 시각 기록이 이미 있으면 비어 있는 리셋 시각만 채운다.
+    /// 새로 넣거나 채운 개수를 돌려준다.
     pub fn import(
         &self,
         account_id: &str,
@@ -233,9 +324,18 @@ impl History {
             previous = Some(sample.used_percent);
             inserted += transaction
                 .execute(
-                    "INSERT OR IGNORE INTO usage_samples (account_id, window, at, used_percent, source)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![account_id, window.as_str(), sample.at.timestamp(), sample.used_percent, source],
+                    "INSERT INTO usage_samples (account_id, window, at, used_percent, source, resets_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT (account_id, window, at) DO UPDATE SET resets_at = excluded.resets_at
+                     WHERE usage_samples.resets_at IS NULL AND excluded.resets_at IS NOT NULL",
+                    params![
+                        account_id,
+                        window.as_str(),
+                        sample.at.timestamp(),
+                        sample.used_percent,
+                        source,
+                        sample.resets_at.map(|at| at.timestamp())
+                    ],
                 )
                 .map_err(|error| error.to_string())?;
         }
@@ -350,6 +450,14 @@ impl History {
 mod tests {
     use super::*;
 
+    fn sample(at: DateTime<Utc>, used_percent: f64) -> Sample {
+        Sample {
+            at,
+            used_percent,
+            resets_at: None,
+        }
+    }
+
     fn at(hours_ago: i64, now: DateTime<Utc>) -> DateTime<Utc> {
         now - Duration::hours(hours_ago)
     }
@@ -360,18 +468,18 @@ mod tests {
         let now = Utc::now();
         assert!(
             history
-                .record("a", WindowKind::Weekly, at(3, now), 10.0, "live")
+                .record("a", WindowKind::Weekly, &sample(at(3, now), 10.0), "live")
                 .unwrap()
         );
         assert!(
             !history
-                .record("a", WindowKind::Weekly, at(2, now), 10.0, "live")
+                .record("a", WindowKind::Weekly, &sample(at(2, now), 10.0), "live")
                 .unwrap(),
             "같은 값은 건너뜀"
         );
         assert!(
             history
-                .record("a", WindowKind::Weekly, at(1, now), 12.0, "live")
+                .record("a", WindowKind::Weekly, &sample(at(1, now), 12.0), "live")
                 .unwrap()
         );
         let trend = history.trend("a", WindowKind::Weekly, now, 7).unwrap();
@@ -384,6 +492,43 @@ mod tests {
     }
 
     #[test]
+    fn same_value_is_recorded_again_when_the_reset_time_changes() {
+        let history = History::in_memory().unwrap();
+        let now = Utc::now();
+        let with_reset = |hours_ago: i64, percent: f64, reset_in_days: i64| Sample {
+            at: at(hours_ago, now),
+            used_percent: percent,
+            resets_at: Some(now + Duration::days(reset_in_days)),
+        };
+        assert!(
+            history
+                .record("a", WindowKind::Weekly, &with_reset(3, 0.0, 1), "live")
+                .unwrap()
+        );
+        // 같은 주기, 같은 값 → 건너뜀
+        assert!(
+            !history
+                .record("a", WindowKind::Weekly, &with_reset(2, 0.0, 1), "live")
+                .unwrap()
+        );
+        // 새 주기(리셋 시각이 일주일 뒤로) → 값이 같아도 남김
+        assert!(
+            history
+                .record("a", WindowKind::Weekly, &with_reset(1, 0.0, 8), "live")
+                .unwrap()
+        );
+
+        let samples = history
+            .samples("a", WindowKind::Weekly, Some(at(2, now)), now)
+            .unwrap();
+        assert_eq!(samples.len(), 2, "기간 직전 기록 하나 + 기간 안 기록 하나");
+        assert_eq!(
+            samples[1].resets_at,
+            Some(now + Duration::days(8)).map(|t| Utc.timestamp_opt(t.timestamp(), 0).unwrap())
+        );
+    }
+
+    #[test]
     fn trend_starts_from_value_before_the_window() {
         let history = History::in_memory().unwrap();
         let now = Utc::now();
@@ -391,13 +536,12 @@ mod tests {
             .record(
                 "a",
                 WindowKind::Weekly,
-                now - Duration::days(9),
-                40.0,
+                &sample(now - Duration::days(9), 40.0),
                 "live",
             )
             .unwrap();
         history
-            .record("a", WindowKind::Weekly, at(5, now), 45.0, "live")
+            .record("a", WindowKind::Weekly, &sample(at(5, now), 45.0), "live")
             .unwrap();
         let trend = history.trend("a", WindowKind::Weekly, now, 7).unwrap();
         assert_eq!(trend.first().unwrap().percent, 40.0);
@@ -411,6 +555,7 @@ mod tests {
         let samples: Vec<Sample> = [(5, 10.0), (4, 10.0), (3, 20.0), (2, 20.0), (1, 0.0)]
             .iter()
             .map(|(hours, percent)| Sample {
+                resets_at: None,
                 at: at(*hours, now),
                 used_percent: *percent,
             })

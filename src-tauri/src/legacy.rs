@@ -121,12 +121,20 @@ pub fn parse_history(json: &Value) -> LegacyHistory {
         match snapshot.get("resetType").and_then(Value::as_str) {
             Some("weeklyReset") => {
                 if let Some(used_percent) = percent("weeklyPercentage") {
-                    history.weekly.push(Sample { at, used_percent });
+                    history.weekly.push(Sample {
+                        at,
+                        used_percent,
+                        resets_at: None,
+                    });
                 }
             }
             Some("sessionReset") => {
                 if let Some(used_percent) = percent("sessionPercentage") {
-                    history.session.push(Sample { at, used_percent });
+                    history.session.push(Sample {
+                        at,
+                        used_percent,
+                        resets_at: None,
+                    });
                 }
             }
             _ => {} // billingCycle 등은 사용률이 아니라서 건너뛴다

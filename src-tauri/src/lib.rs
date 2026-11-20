@@ -23,6 +23,7 @@ mod claude;
 mod claude_web;
 mod codex;
 mod history;
+mod history_view;
 mod legacy;
 mod menubar;
 mod mock;
@@ -124,7 +125,7 @@ async fn add_codex_account(app: AppHandle) -> Result<Account, String> {
     }
     codex::read_credentials(&codex::codex_home())?;
 
-    let account = Account::new_codex();
+    let account = Account::new_codex(&state.accounts());
     let accounts = state.update_accounts(|accounts| accounts.push(account.clone()))?;
     accounts_changed(&app, &accounts);
     refresh::refresh_codex_account(&app, &account).await;
@@ -133,6 +134,9 @@ async fn add_codex_account(app: AppHandle) -> Result<Account, String> {
     backfill_codex_history(app.clone());
     Ok(account)
 }
+
+/// Codex 로그 가져오기를 했는지 기억하는 키. v2: 리셋 시각까지 채워서 다시 가져온다.
+const CODEX_IMPORT_KEY: &str = "codex-log-import-v2:";
 
 /// Codex 세션 로그에 남은 지난 한도 기록을 그래프용 기록 DB 로 가져온다. 계정마다 한 번만 한다.
 fn backfill_codex_history(app: AppHandle) {
@@ -147,7 +151,7 @@ fn backfill_codex_history(app: AppHandle) {
             .filter(|account| account.provider == Provider::Codex)
             .filter(|account| {
                 history
-                    .meta(&format!("codex-log-import:{}", account.id))
+                    .meta(&format!("{CODEX_IMPORT_KEY}{}", account.id))
                     .is_none()
             })
             .collect();
@@ -165,6 +169,7 @@ fn backfill_codex_history(app: AppHandle) {
                 usage.reading.weekly.as_ref().map(|w| history::Sample {
                     at: *at,
                     used_percent: w.percent,
+                    resets_at: w.resets_at,
                 })
             })
             .collect();
@@ -174,6 +179,7 @@ fn backfill_codex_history(app: AppHandle) {
                 usage.reading.session.as_ref().map(|w| history::Sample {
                     at: *at,
                     used_percent: w.percent,
+                    resets_at: w.resets_at,
                 })
             })
             .collect();
@@ -181,7 +187,7 @@ fn backfill_codex_history(app: AppHandle) {
             let _ = history.import(&account.id, WindowKind::Weekly, &weekly, "codex-log");
             let _ = history.import(&account.id, WindowKind::Session, &session, "codex-log");
             let _ = history.set_meta(
-                &format!("codex-log-import:{}", account.id),
+                &format!("{CODEX_IMPORT_KEY}{}", account.id),
                 &Utc::now().to_rfc3339(),
             );
         }
@@ -344,6 +350,69 @@ fn remove_admin_key(app: AppHandle) -> Result<ApiCostInfo, String> {
     state.summary.lock().unwrap().api_cost = None;
     refresh::publish(&app);
     Ok(api_cost_info(&state))
+}
+
+/// 히스토리 창 데이터. `range`: "cycle" | "7d" | "30d" | "all"
+#[tauri::command]
+fn get_history(
+    state: tauri::State<AppState>,
+    range: String,
+) -> Result<history_view::HistoryData, String> {
+    let Some(history) = &state.history else {
+        return Err("기록 DB 를 열지 못했어요".to_string());
+    };
+    // 지금 조회 중인 주간 리셋 시각 (아직 기록에 안 남았어도 이번 주기를 정확히 나누려고)
+    let live_resets: HashMap<String, chrono::DateTime<Utc>> = state
+        .account_data
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|(id, data)| {
+            let reset = data.usage.as_ref()?.weekly.as_ref()?.resets_at?;
+            Some((id.clone(), reset))
+        })
+        .collect();
+    history_view::build(
+        history,
+        &state.accounts(),
+        &live_resets,
+        history_view::Range::parse(&range),
+        Utc::now(),
+    )
+}
+
+/// 히스토리 창 이름
+const HISTORY_LABEL: &str = "history";
+
+/// 히스토리 창을 연다. 이미 열려 있으면 앞으로 가져온다.
+#[tauri::command]
+fn open_history(app: AppHandle) -> Result<(), String> {
+    popover::hide(&app);
+    if let Some(window) = app.get_webview_window(HISTORY_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let title = if alerts::prefers_korean() {
+        "AI Usage 기록"
+    } else {
+        "AI Usage History"
+    };
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        HISTORY_LABEL,
+        tauri::WebviewUrl::App("index.html#history".into()),
+    )
+    .title(title)
+    .inner_size(980.0, 800.0)
+    .min_inner_size(680.0, 520.0)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|error| error.to_string())?;
+    let _ = window.set_focus();
+    Ok(())
 }
 
 #[tauri::command]
@@ -511,6 +580,8 @@ pub fn run() {
             get_api_cost_info,
             set_admin_key,
             remove_admin_key,
+            get_history,
+            open_history,
             resize_popover,
             hide_popover,
             quit_app

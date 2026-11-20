@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "팝오버 창이 쓸 수 있는 기능",
-  "windows": ["popover"],
+  "description": "앱 화면(팝오버, 히스토리 창)이 쓸 수 있는 기능. 계정 로그인 창(claude.ai)에는 주지 않는다.",
+  "windows": [
+    "popover",
+    "history"
+  ],
   "permissions": [
     "core:default",
     "opener:default"

@@ -14,13 +14,12 @@ import {
   updateAccount,
 } from "../api";
 import { formatAsOf, formatDateRange, formatUsd, t } from "../i18n";
+import { PALETTE } from "../palette";
 import type { Account, ApiCostInfo, LabelKind, LegacyProfile, Settings } from "../types";
 import { ChevronIcon } from "./Icons";
 import { LabelBadge } from "./LabelBadge";
 import { Segmented } from "./Segmented";
 
-/** 계정 색 고르기 (Rust accounts.rs 의 PALETTE 와 같은 순서) */
-const PALETTE = ["#D97757", "#6A9BCC", "#10A37F", "#B07CC6", "#D4A72C", "#E0607E", "#4FA3A5", "#8C8C8C"];
 
 interface SettingsViewProps {
   settings: Settings;
