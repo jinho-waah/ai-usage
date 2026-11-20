@@ -104,6 +104,8 @@ export function HistoryApp() {
       ) : (
         data && (
           <>
+            {/* 맨 위: 주기마다 리셋까지 얼마나 쌓였는지 */}
+            <CyclesCard data={data} show={show} colorOf={colorOf} />
             <TrendCard
               title={t("weeklyUsage")}
               data={data}
@@ -115,7 +117,6 @@ export function HistoryApp() {
             {data.session.length > 0 && (
               <TrendCard title={t("sessionUsage")} data={data} series={data.session} show={show} colorOf={colorOf} />
             )}
-            <CyclesCard data={data} show={show} colorOf={colorOf} />
           </>
         )
       )}
@@ -311,7 +312,7 @@ function CyclesCard({ data, show, colorOf }: CyclesCardProps) {
               <LineChart
                 lines={lines}
                 xDomain={[0, WEEK_HOURS]}
-                xTicks={() => cycleTicks((day) => t("dayN", { n: day }))}
+                xTicks={() => cycleTicks((day) => (day === 7 ? t("resetTick") : t("dayN", { n: day })))}
                 height={190}
                 formatX={(hours) =>
                   t("elapsed", { d: Math.floor(hours / 24), h: Math.floor(hours % 24) })

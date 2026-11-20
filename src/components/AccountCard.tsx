@@ -28,6 +28,11 @@ interface AccountCardProps {
 /** 팝오버의 계정 카드 하나 */
 export function AccountCard({ account, percentMode, now, onSignIn }: AccountCardProps) {
   const remaining = percentMode === "remaining";
+  // 작은 그래프 가로축: 이번 주기 시작 ~ 리셋 시각 (모르면 최근 기록 기간)
+  const cycleDomain: [number, number] | undefined =
+    account.trendStart && account.trendEnd
+      ? [new Date(account.trendStart).getTime(), new Date(account.trendEnd).getTime()]
+      : undefined;
   // 남은 양 모드: 숫자·막대 채움 = 남은 사용량, 눈금 = 남은 시간
   const shown = (used: number) => (remaining ? 100 - used : used);
   const marker = (elapsed: number | null | undefined) =>
@@ -118,10 +123,10 @@ export function AccountCard({ account, percentMode, now, onSignIn }: AccountCard
         </div>
       )}
 
-      {account.trend.length > 1 && (
+      {(cycleDomain ? account.trend.length > 0 : account.trend.length > 1) && (
         <div className="trend">
-          <span className="trend-label">{trendLabel(account.trend)}</span>
-          <Sparkline points={account.trend} color={account.color} flip={remaining} />
+          <span className="trend-label">{cycleDomain ? t("thisCycle") : trendLabel(account.trend)}</span>
+          <Sparkline points={account.trend} color={account.color} flip={remaining} domain={cycleDomain} />
         </div>
       )}
     </section>

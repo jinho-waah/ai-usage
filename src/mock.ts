@@ -32,19 +32,26 @@ function usageWindow(used: number, resetsInHours: number, windowSeconds: number)
   };
 }
 
-function trend(window: UsageWindow, previousFrom: number, previousTo: number): TrendPoint[] {
+/** 이번 주기 시작부터 지금까지 한 시간마다 누적 사용률 (낮에 더 많이 쓴다고 가정). 끝은 지금 사용률. */
+function cycleTrend(window: UsageWindow): { trend: TrendPoint[]; trendStart: string | null; trendEnd: string | null } {
   const now = Date.now();
-  const cycleStart = new Date(window.resetsAt ?? Date.now()).getTime() - window.windowSeconds * 1000;
-  const points: TrendPoint[] = [];
-  for (let i = 0; i <= 168; i++) {
-    const at = now - (168 - i) * HOUR;
-    const percent =
-      at >= cycleStart
-        ? (window.usedPercent * (at - cycleStart)) / Math.max(1, now - cycleStart)
-        : previousFrom + ((previousTo - previousFrom) * (at - (now - 168 * HOUR))) / Math.max(1, cycleStart - (now - 168 * HOUR));
-    points.push({ at: new Date(at).toISOString(), percent });
-  }
-  return points;
+  if (!window.resetsAt) return { trend: [], trendStart: null, trendEnd: null };
+  const end = new Date(window.resetsAt).getTime();
+  const start = end - window.windowSeconds * 1000;
+  const hours: number[] = [];
+  for (let at = start; at <= now; at += HOUR) hours.push(at);
+  const activity = (at: number) => {
+    const hour = new Date(at).getHours();
+    return hour < 9 ? 0.1 : hour >= 19 ? 1.6 : 1;
+  };
+  const total = hours.reduce((sum, at) => sum + activity(at), 0) || 1;
+  let sum = 0;
+  const trend: TrendPoint[] = hours.map((at) => {
+    sum += activity(at);
+    return { at: new Date(at).toISOString(), percent: Math.round((window.usedPercent * sum) / total) };
+  });
+  trend.push({ at: new Date(now).toISOString(), percent: window.usedPercent });
+  return { trend, trendStart: new Date(start).toISOString(), trendEnd: window.resetsAt };
 }
 
 export function mockSnapshot(): Snapshot {
@@ -68,7 +75,7 @@ export function mockSnapshot(): Snapshot {
       ],
       extra: { used: 4.2, limit: 50, currency: "USD" },
       apiCost: { usd: 3.1, refreshedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() },
-      trend: trend(personalWeekly, 30, 72),
+      ...cycleTrend(personalWeekly),
       status: { kind: "ok" },
       updatedAt: new Date().toISOString(),
     },
@@ -84,7 +91,7 @@ export function mockSnapshot(): Snapshot {
       models: [],
       extra: null,
       apiCost: null,
-      trend: trend(workWeekly, 10, 64),
+      ...cycleTrend(workWeekly),
       status: { kind: "ok" },
       updatedAt: new Date().toISOString(),
     },
@@ -100,7 +107,7 @@ export function mockSnapshot(): Snapshot {
       models: [],
       extra: null,
       apiCost: null,
-      trend: trend(codexWeekly, 20, 80),
+      ...cycleTrend(codexWeekly),
       status: { kind: "needsLogin" },
       updatedAt: new Date(Date.now() - 42 * 60_000).toISOString(),
     },

@@ -170,7 +170,11 @@ pub struct AccountUsage {
     pub extra: Option<ExtraUsage>,
     /// 이번 달 Claude API 비용 (이 계정에 Admin API 키가 있을 때만)
     pub api_cost: Option<crate::api_cost::MonthCost>,
+    /// 미니 그래프: 이번 주기(리셋까지)의 누적 사용률
     pub trend: Vec<TrendPoint>,
+    /// 미니 그래프 가로축: 이번 주기 시작 ~ 리셋 시각. 리셋 시각을 모르면 `None` (그때 그래프는 최근 7일)
+    pub trend_start: Option<DateTime<Utc>>,
+    pub trend_end: Option<DateTime<Utc>>,
     pub status: AccountStatus,
     /// 마지막으로 사용량을 받아 온 시각. 아직 못 받았으면 `None`.
     pub updated_at: Option<DateTime<Utc>>,

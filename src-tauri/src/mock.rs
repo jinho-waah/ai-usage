@@ -55,7 +55,11 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             },
             color: "#D97757".into(),
             plan: Some("Ultra".into()),
-            trend: weekly_trend(&personal_weekly, now, 30.0, 72.0),
+            trend: cycle_trend(&personal_weekly, now),
+            trend_start: personal_weekly
+                .resets_at
+                .map(|end| end - Duration::seconds(personal_weekly.window_seconds)),
+            trend_end: personal_weekly.resets_at,
             weekly: Some(personal_weekly),
             session: None,
             models: vec![
@@ -90,7 +94,11 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             },
             color: "#6A9BCC".into(),
             plan: Some("Pro".into()),
-            trend: weekly_trend(&work_weekly, now, 10.0, 64.0),
+            trend: cycle_trend(&work_weekly, now),
+            trend_start: work_weekly
+                .resets_at
+                .map(|end| end - Duration::seconds(work_weekly.window_seconds)),
+            trend_end: work_weekly.resets_at,
             weekly: Some(work_weekly),
             session: Some(work_session),
             models: vec![],
@@ -109,7 +117,11 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             },
             color: "#10A37F".into(),
             plan: Some("Pro".into()),
-            trend: weekly_trend(&codex_weekly, now, 20.0, 80.0),
+            trend: cycle_trend(&codex_weekly, now),
+            trend_start: codex_weekly
+                .resets_at
+                .map(|end| end - Duration::seconds(codex_weekly.window_seconds)),
+            trend_end: codex_weekly.resets_at,
             weekly: Some(codex_weekly),
             session: None,
             models: vec![],
@@ -163,17 +175,13 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
     }
 }
 
-/// 최근 7일 동안 한 시간 간격의 사용률 변화를 만든다.
-/// 이번 주기(리셋 이후)는 0% 에서 현재 사용률까지 오르고,
-/// 그 전(지난 주기)은 `prev_from` 에서 `prev_to` 까지 오른 것으로 만든다.
-fn weekly_trend(
-    window: &UsageWindow,
-    now: DateTime<Utc>,
-    prev_from: f64,
-    prev_to: f64,
-) -> Vec<TrendPoint> {
+/// 이번 주기 시작부터 지금까지 한 시간 간격의 누적 사용률을 만든다. 끝은 지금 사용률.
+fn cycle_trend(window: &UsageWindow, now: DateTime<Utc>) -> Vec<TrendPoint> {
     let cycle_start = window.resets_at.unwrap_or(now) - Duration::seconds(window.window_seconds);
-    let hours: Vec<DateTime<Utc>> = (0..=168).map(|i| now - Duration::hours(168 - i)).collect();
+    let hours: Vec<DateTime<Utc>> = (0..)
+        .map(|i| cycle_start + Duration::hours(i))
+        .take_while(|t| *t <= now)
+        .collect();
 
     // 시간대별 활동량: 한국 시간 새벽에는 적게, 저녁에는 많이 쓴다고 가정
     let activity = |t: &DateTime<Utc>| {
@@ -186,31 +194,22 @@ fn weekly_trend(
             1.0
         }
     };
-
-    let current_total: f64 = hours
+    let total: f64 = hours.iter().map(activity).sum();
+    let mut sum = 0.0;
+    let mut points: Vec<TrendPoint> = hours
         .iter()
-        .filter(|t| **t >= cycle_start)
-        .map(activity)
-        .sum();
-    let previous_total: f64 = hours
-        .iter()
-        .filter(|t| **t < cycle_start)
-        .map(activity)
-        .sum();
-
-    let mut current_sum = 0.0;
-    let mut previous_sum = 0.0;
-    let mut points = Vec::with_capacity(hours.len());
-    for t in &hours {
-        let percent = if *t >= cycle_start {
-            current_sum += activity(t);
-            window.used_percent * current_sum / current_total.max(f64::EPSILON)
-        } else {
-            previous_sum += activity(t);
-            prev_from + (prev_to - prev_from) * previous_sum / previous_total.max(f64::EPSILON)
-        };
-        points.push(TrendPoint { at: *t, percent });
-    }
+        .map(|t| {
+            sum += activity(t);
+            TrendPoint {
+                at: *t,
+                percent: window.used_percent * sum / total.max(f64::EPSILON),
+            }
+        })
+        .collect();
+    points.push(TrendPoint {
+        at: now,
+        percent: window.used_percent,
+    });
     points
 }
 
