@@ -31,6 +31,7 @@ pub async fn refresh_all(app: &AppHandle) -> Snapshot {
             }
         }
         record_history(&state);
+        crate::alerts::check_logins(app);
     }
     publish(app)
 }
@@ -264,6 +265,65 @@ pub async fn refresh_tokens(app: &AppHandle, min_gap: std::time::Duration) {
         let mut summary = state.summary.lock().unwrap();
         summary.tokens = brand_tokens(totals);
         summary.tokens_scanning = false;
+    }
+    publish(app);
+}
+
+/// Claude·OpenAI 상태 페이지를 확인한다. 그 제공자의 계정이 있을 때만. (5분마다)
+pub async fn refresh_services(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.demo {
+        return;
+    }
+    let providers: Vec<Provider> = state
+        .accounts()
+        .iter()
+        .map(|account| account.provider)
+        .collect();
+    let mut statuses = Vec::new();
+    for source in crate::services::SOURCES
+        .iter()
+        .filter(|source| providers.contains(&source.provider))
+    {
+        let report = crate::services::fetch(source).await;
+        crate::alerts::service_checked(app, source.name, &report);
+        statuses.push(crate::model::ServiceStatus {
+            name: source.name.to_string(),
+            state: report.state,
+        });
+    }
+    state.summary.lock().unwrap().services = statuses;
+    publish(app);
+}
+
+/// 이번 달 Claude API 비용을 받아 온다. Admin API 키가 없으면 비용 칸을 비운다. (1시간마다)
+pub async fn refresh_api_cost(app: &AppHandle) {
+    use crate::api_cost::{self, CostOutcome};
+
+    let state = app.state::<AppState>();
+    if state.demo {
+        return;
+    }
+    let Some(key) = state.admin_key.lock().unwrap().clone() else {
+        state.summary.lock().unwrap().api_cost = None;
+        *state.api_cost_error.lock().unwrap() = None;
+        publish(app);
+        return;
+    };
+    match api_cost::fetch_month_cost(&key, chrono::Local::now()).await {
+        CostOutcome::Ok(cost) => {
+            state.summary.lock().unwrap().api_cost = Some(cost);
+            *state.api_cost_error.lock().unwrap() = None;
+        }
+        CostOutcome::Unauthorized => {
+            state.summary.lock().unwrap().api_cost = None;
+            *state.api_cost_error.lock().unwrap() =
+                Some("Admin API 키가 맞지 않거나 권한이 없어요".to_string());
+        }
+        // 일시적인 오류면 이전 값을 그대로 둔다
+        CostOutcome::Failed(message) => {
+            *state.api_cost_error.lock().unwrap() = Some(message);
+        }
     }
     publish(app);
 }

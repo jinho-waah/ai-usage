@@ -142,7 +142,10 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
                 },
             ],
             tokens_scanning: false,
-            api_month_cost_usd: Some(3.1),
+            api_cost: Some(crate::api_cost::MonthCost {
+                usd: 3.1,
+                refreshed_at: Some(now - Duration::hours(3)),
+            }),
             services: vec![
                 ServiceStatus {
                     name: "Claude".into(),

@@ -36,6 +36,8 @@ base64 = "0.22"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # 원본 Claude Usage 앱의 설정 파일(plist)에서 프로필 이름을 읽을 때
 plist = "1"
+# macOS 알림 (로그인 만료, 서비스 장애)
+tauri-plugin-notification = "2"
 
 # macOS 전용: AppKit(메뉴바 아이콘 그리기)·WebKit(계정 웹뷰)을 Rust에서 직접 부르기 위한 바인딩
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -44,6 +46,8 @@ objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 objc2-web-kit = "0.3"
 block2 = "0.6"
+# Admin API 키를 macOS 키체인에 저장할 때
+security-framework = "3"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

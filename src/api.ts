@@ -7,11 +7,39 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { mockAccounts, mockSettings, mockSnapshot } from "./mock";
-import type { Account, AccountEdit, LegacyProfile, Settings, Snapshot } from "./types";
+import type { Account, AccountEdit, ApiCostInfo, LegacyProfile, Settings, Snapshot } from "./types";
 
 const inApp = isTauri();
 let browserSettings: Settings = mockSettings();
 let browserAccounts: Account[] = mockAccounts();
+let browserApiCost: ApiCostInfo = { configured: false, keyHint: null, error: null, cost: null };
+
+// ───────── Claude API 비용 (Admin API 키) ─────────
+
+export function getApiCostInfo(): Promise<ApiCostInfo> {
+  return inApp ? invoke<ApiCostInfo>("get_api_cost_info") : Promise.resolve(browserApiCost);
+}
+
+/** 키를 확인하고 키체인에 저장한다. 틀린 키면 오류 메시지를 던진다. */
+export function setAdminKey(key: string): Promise<ApiCostInfo> {
+  if (inApp) return invoke<ApiCostInfo>("set_admin_key", { key });
+  if (!key.trim().startsWith("sk-ant-admin")) {
+    return Promise.reject("Admin API 키(sk-ant-admin…)를 넣어 주세요. 일반 API 키로는 비용을 볼 수 없어요");
+  }
+  browserApiCost = {
+    configured: true,
+    keyHint: `sk-ant-admin…${key.trim().slice(-4)}`,
+    error: null,
+    cost: { usd: 3.1, refreshedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() },
+  };
+  return Promise.resolve(browserApiCost);
+}
+
+export function removeAdminKey(): Promise<ApiCostInfo> {
+  if (inApp) return invoke<ApiCostInfo>("remove_admin_key");
+  browserApiCost = { configured: false, keyHint: null, error: null, cost: null };
+  return Promise.resolve(browserApiCost);
+}
 
 // ───────── 계정 ─────────
 

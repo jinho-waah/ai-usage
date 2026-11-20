@@ -577,12 +577,6 @@ html.preview .popover {
   line-height: 1.45;
 }
 
-.settings-note {
-  margin: 4px 0 2px;
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-
 /* ───────── 계정 상태 안내 ───────── */
 
 .status-line {
@@ -850,4 +844,22 @@ html.preview .popover {
 .import-result {
   color: var(--text-secondary);
   font-size: 11px;
+}
+
+/* ───────── 설정: Claude API 비용 ───────── */
+
+.api-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-key-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.api-key-row .account-text {
+  flex: 1;
+  min-width: 0;
 }

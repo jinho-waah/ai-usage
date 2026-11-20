@@ -119,7 +119,7 @@ export function mockSnapshot(): Snapshot {
         },
       ],
       tokensScanning: false,
-      apiMonthCostUsd: 3.1,
+      apiCost: { usd: 3.1, refreshedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() },
       services: [
         { name: "Claude", state: "operational" },
         { name: "OpenAI", state: "operational" },

@@ -17,6 +17,8 @@ macro_rules! dev_log {
 }
 
 mod accounts;
+mod alerts;
+mod api_cost;
 mod claude;
 mod claude_web;
 mod codex;
@@ -27,6 +29,7 @@ mod mock;
 mod model;
 mod popover;
 mod refresh;
+mod services;
 mod settings;
 mod state;
 mod tokens;
@@ -53,6 +56,10 @@ use crate::state::AppState;
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 /// 로컬 로그 토큰 집계 간격
 const TOKEN_SCAN_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// 서비스 상태 페이지 확인 간격
+const SERVICE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// API 비용 조회 간격 (데이터가 몇 시간 늦게 반영되므로 자주 볼 필요 없다)
+const API_COST_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 // ───────── React 화면에서 부르는 명령 ─────────
 // `#[tauri::command]` 가 붙은 함수는 화면에서 `invoke("함수이름")` 으로 부를 수 있다.
@@ -278,6 +285,67 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 설정 화면의 Claude API 칸에 보여 줄 정보
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiCostInfo {
+    /// 키가 저장돼 있는지
+    configured: bool,
+    /// 가린 키 ("sk-ant-admin…abcd")
+    key_hint: Option<String>,
+    error: Option<String>,
+    cost: Option<api_cost::MonthCost>,
+}
+
+fn api_cost_info(state: &AppState) -> ApiCostInfo {
+    let key = state.admin_key.lock().unwrap().clone();
+    ApiCostInfo {
+        configured: key.is_some(),
+        key_hint: key.as_deref().map(api_cost::mask),
+        error: state.api_cost_error.lock().unwrap().clone(),
+        cost: state.summary.lock().unwrap().api_cost.clone(),
+    }
+}
+
+#[tauri::command]
+fn get_api_cost_info(state: tauri::State<AppState>) -> ApiCostInfo {
+    api_cost_info(&state)
+}
+
+/// Admin API 키를 확인하고 키체인에 저장한다. 키가 틀리면 저장하지 않는다.
+#[tauri::command]
+async fn set_admin_key(app: AppHandle, key: String) -> Result<ApiCostInfo, String> {
+    let key = key.trim().to_string();
+    if !api_cost::looks_like_admin_key(&key) {
+        return Err(
+            "Admin API 키(sk-ant-admin…)를 넣어 주세요. 일반 API 키로는 비용을 볼 수 없어요"
+                .to_string(),
+        );
+    }
+    if let api_cost::CostOutcome::Unauthorized =
+        api_cost::fetch_month_cost(&key, chrono::Local::now()).await
+    {
+        return Err("키가 맞지 않거나 권한이 없어요".to_string());
+    }
+    api_cost::save_key(&key)?;
+    let state = app.state::<AppState>();
+    *state.admin_key.lock().unwrap() = Some(key);
+    refresh::refresh_api_cost(&app).await;
+    Ok(api_cost_info(&state))
+}
+
+/// Admin API 키를 키체인에서 지운다.
+#[tauri::command]
+fn remove_admin_key(app: AppHandle) -> Result<ApiCostInfo, String> {
+    api_cost::delete_key()?;
+    let state = app.state::<AppState>();
+    *state.admin_key.lock().unwrap() = None;
+    *state.api_cost_error.lock().unwrap() = None;
+    state.summary.lock().unwrap().api_cost = None;
+    refresh::publish(&app);
+    Ok(api_cost_info(&state))
+}
+
 #[tauri::command]
 fn resize_popover(app: AppHandle, height: f64) {
     popover::resize(&app, height);
@@ -316,6 +384,7 @@ fn on_window_event(window: &Window, event: &WindowEvent) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(popover::PopoverState::default())
         .setup(|app| {
             // Dock 아이콘 없이 메뉴바에만 있는 앱으로 동작
@@ -349,6 +418,10 @@ pub fn run() {
                 db_path,
                 summary: Mutex::new(Summary::default()),
                 token_scan: tokio::sync::Mutex::new(None),
+                login_misses: Mutex::new(HashMap::new()),
+                // 데모 모드에서는 키체인을 읽지 않는다
+                admin_key: Mutex::new(if demo { None } else { api_cost::load_key() }),
+                api_cost_error: Mutex::new(None),
                 demo,
                 started_at,
             });
@@ -388,6 +461,26 @@ pub fn run() {
                 }
             });
 
+            // 서비스 상태: 시작하자마자 한 번, 그 뒤 5분마다
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(SERVICE_INTERVAL);
+                loop {
+                    ticker.tick().await;
+                    refresh::refresh_services(&handle).await;
+                }
+            });
+
+            // Claude API 비용: 시작하자마자 한 번, 그 뒤 1시간마다
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(API_COST_INTERVAL);
+                loop {
+                    ticker.tick().await;
+                    refresh::refresh_api_cost(&handle).await;
+                }
+            });
+
             // 1분마다 갱신한다. interval 의 첫 tick 은 바로 끝나므로 시작하자마자 한 번 조회한다.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -415,6 +508,9 @@ pub fn run() {
             move_account,
             relogin_account,
             remove_account,
+            get_api_cost_info,
+            set_admin_key,
+            remove_admin_key,
             resize_popover,
             hide_popover,
             quit_app

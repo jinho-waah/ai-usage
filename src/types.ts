@@ -120,11 +120,27 @@ export interface BrandTokens {
   since: string | null;
 }
 
+/** 이번 달 Claude API 비용 (Admin API) */
+export interface MonthCost {
+  usd: number;
+  /** 이 시각까지의 사용분만 반영됨 (보통 몇 시간 늦음). null: 아직 집계 전 */
+  refreshedAt: string | null;
+}
+
+/** 설정 화면의 Claude API 칸 */
+export interface ApiCostInfo {
+  configured: boolean;
+  /** 가린 키 ("sk-ant-admin…abcd") */
+  keyHint: string | null;
+  error: string | null;
+  cost: MonthCost | null;
+}
+
 export interface Summary {
   tokens: BrandTokens[];
   /** 로그를 집계하는 중 */
   tokensScanning: boolean;
-  apiMonthCostUsd: number | null;
+  apiCost: MonthCost | null;
   services: ServiceStatus[];
 }
 

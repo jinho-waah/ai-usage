@@ -226,8 +226,8 @@ pub struct Summary {
     pub tokens: Vec<BrandTokens>,
     /// 로그를 집계하는 중이면 true
     pub tokens_scanning: bool,
-    /// 이번 달 API 비용 (Admin API 기준)
-    pub api_month_cost_usd: Option<f64>,
+    /// 이번 달 Claude API 비용 (Admin API 키가 있을 때만)
+    pub api_cost: Option<crate::api_cost::MonthCost>,
     pub services: Vec<ServiceStatus>,
 }
 

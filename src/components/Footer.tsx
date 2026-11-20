@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { formatCount, formatDay, formatTokens, formatUpdated, formatUsd, t } from "../i18n";
+import { formatAsOf, formatCount, formatDay, formatTokens, formatUpdated, formatUsd, t } from "../i18n";
 import type { BrandTokens, Summary } from "../types";
 import { ChevronIcon } from "./Icons";
 
@@ -14,7 +14,7 @@ interface FooterProps {
 export function Footer({ summary, updatedAt, now, onQuit }: FooterProps) {
   const showScanning = summary.tokensScanning && summary.tokens.length === 0;
   const hasSummary =
-    summary.tokens.length > 0 || showScanning || summary.apiMonthCostUsd !== null || summary.services.length > 0;
+    summary.tokens.length > 0 || showScanning || summary.apiCost !== null || summary.services.length > 0;
 
   return (
     <footer className="footer">
@@ -24,10 +24,17 @@ export function Footer({ summary, updatedAt, now, onQuit }: FooterProps) {
             <TokenRow key={brand.provider} brand={brand} />
           ))}
           {showScanning && <div className="summary-note">{t("tokensScanning")}</div>}
-          {summary.apiMonthCostUsd !== null && (
-            <div className="summary-row">
+          {summary.apiCost !== null && (
+            <div
+              className="summary-row"
+              title={
+                summary.apiCost.refreshedAt
+                  ? t("apiCostAsOf", { time: formatAsOf(summary.apiCost.refreshedAt, now) })
+                  : t("apiCostNoData")
+              }
+            >
               <span className="summary-label">{t("apiThisMonth")}</span>
-              <span className="summary-value">{formatUsd(summary.apiMonthCostUsd)}</span>
+              <span className="summary-value">{formatUsd(summary.apiCost.usd)}</span>
             </div>
           )}
           {summary.services.length > 0 && (

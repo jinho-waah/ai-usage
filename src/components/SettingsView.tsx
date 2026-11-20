@@ -3,15 +3,18 @@ import { useEffect, useState } from "react";
 import {
   addClaudeAccount,
   addCodexAccount,
+  getApiCostInfo,
   importLegacyHistory,
   listLegacyProfiles,
   moveAccount,
   reloginAccount,
   removeAccount,
+  removeAdminKey,
+  setAdminKey,
   updateAccount,
 } from "../api";
-import { formatDateRange, t } from "../i18n";
-import type { Account, LabelKind, LegacyProfile, Settings } from "../types";
+import { formatAsOf, formatDateRange, formatUsd, t } from "../i18n";
+import type { Account, ApiCostInfo, LabelKind, LegacyProfile, Settings } from "../types";
 import { ChevronIcon } from "./Icons";
 import { LabelBadge } from "./LabelBadge";
 import { Segmented } from "./Segmented";
@@ -68,10 +71,90 @@ export function SettingsView({ settings, accounts, onChange, onBack }: SettingsV
         </p>
       </section>
 
-      <LegacyImportSection accounts={accounts} />
+      <ApiCostSection />
 
-      <p className="settings-note">{t("settingsNote")}</p>
+      <LegacyImportSection accounts={accounts} />
     </div>
+  );
+}
+
+/** Claude API 비용: Admin API 키 입력·삭제 */
+function ApiCostSection() {
+  const [info, setInfo] = useState<ApiCostInfo | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getApiCostInfo().then(setInfo);
+  }, []);
+
+  if (!info) return null;
+
+  const save = async () => {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setInfo(await setAdminKey(draft));
+      setDraft("");
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setError(null);
+    try {
+      setInfo(await removeAdminKey());
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  const message = error ?? info.error;
+  return (
+    <section className="setting">
+      <div className="setting-title">{t("apiCostTitle")}</div>
+      {info.configured ? (
+        <div className="api-key-row">
+          <div className="account-text">
+            <span className="account-name">{info.keyHint}</span>
+            <span className="account-sub">
+              {info.cost
+                ? `${t("apiThisMonth")} ${formatUsd(info.cost.usd)}` +
+                  (info.cost.refreshedAt ? ` · ${formatAsOf(info.cost.refreshedAt, Date.now())}` : "")
+                : t("apiKeyConnected")}
+            </span>
+          </div>
+          <button className="text-button danger" onClick={remove}>
+            {t("removeKey")}
+          </button>
+        </div>
+      ) : (
+        <div className="api-key-row">
+          <input
+            className="text-input"
+            type="password"
+            placeholder={t("apiKeyPlaceholder")}
+            value={draft}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") save();
+            }}
+          />
+          <button className="push-button" disabled={!draft.trim() || busy} onClick={save}>
+            {busy ? t("checking") : t("save")}
+          </button>
+        </div>
+      )}
+      {message && <p className="error-text">{message}</p>}
+      <p className="setting-help">{t("apiCostHelp")}</p>
+    </section>
   );
 }
 

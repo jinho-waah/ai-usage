@@ -50,6 +50,12 @@ pub struct AppState {
     pub summary: Mutex<Summary>,
     /// 토큰 집계가 겹치지 않게 잡는 자물쇠. 안에는 마지막으로 집계를 마친 시각.
     pub token_scan: tokio::sync::Mutex<Option<std::time::Instant>>,
+    /// 계정별로 "로그인 필요"가 연속으로 몇 번 나왔는지 (로그인 만료 알림용)
+    pub login_misses: Mutex<HashMap<String, u32>>,
+    /// Admin API 키 (키체인에서 한 번 읽어 둔 것). 없으면 API 비용을 보여 주지 않는다.
+    pub admin_key: Mutex<Option<String>>,
+    /// 마지막 API 비용 조회 오류 (설정 화면에 보여 줌)
+    pub api_cost_error: Mutex<Option<String>>,
     /// 데모 모드(`AI_USAGE_DEMO=1`): 실제 계정 대신 가짜 데이터를 보여 준다.
     pub demo: bool,
     pub started_at: DateTime<Utc>,

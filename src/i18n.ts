@@ -89,7 +89,14 @@ const strings = {
     remaining: "남은 양",
     percentModeHelpRemaining: "숫자와 막대가 남은 양을 보여 주고, 눈금은 남은 시간이에요. 남은 양이 남은 시간보다 5%p 이상 적으면 빨강이에요.",
     percentModeHelpUsed: "숫자와 막대가 사용한 양을 보여 주고, 눈금은 지난 시간이에요. 사용량이 지난 시간보다 5%p 이상 많으면 빨강이에요.",
-    settingsNote: "API 비용 연동은 다음 단계에서 추가돼요.",
+    apiCostTitle: "Claude API 비용",
+    apiCostHelp: "Claude Console에서 만든 Admin API 키(sk-ant-admin…)를 넣으면 이번 달 API 비용을 보여 줘요. 키는 이 Mac의 키체인에만 저장돼요.",
+    apiKeyPlaceholder: "sk-ant-admin…",
+    apiKeyConnected: "연결됨 · 비용을 불러오는 중",
+    removeKey: "키 삭제",
+    checking: "확인 중…",
+    apiCostAsOf: "{time} 기준이에요. 보통 몇 시간 늦게 반영돼요.",
+    apiCostNoData: "아직 집계된 사용량이 없어요.",
     days: "{n}일",
     hours: "{n}시간",
     hoursDecimal: "{n}시간",
@@ -179,7 +186,14 @@ const strings = {
     remaining: "Remaining",
     percentModeHelpRemaining: "Numbers and bars show what is left; the tick is the time left. Red when what is left trails the time left by 5 points.",
     percentModeHelpUsed: "Numbers and bars show what is used; the tick is the time passed. Red when usage runs 5 points ahead of the time passed.",
-    settingsNote: "API cost comes in a later milestone.",
+    apiCostTitle: "Claude API cost",
+    apiCostHelp: "Enter an Admin API key (sk-ant-admin…) from the Claude Console to see this month's API cost. The key is stored only in this Mac's Keychain.",
+    apiKeyPlaceholder: "sk-ant-admin…",
+    apiKeyConnected: "Connected · loading cost",
+    removeKey: "Remove key",
+    checking: "Checking…",
+    apiCostAsOf: "As of {time}. Usually a few hours behind.",
+    apiCostNoData: "No usage counted yet.",
     days: "{n}d",
     hours: "{n}h",
     hoursDecimal: "{n}h",
@@ -211,6 +225,12 @@ const otherDayTime = new Intl.DateTimeFormat(locale, {
 export function formatResetTime(iso: string, now: number): string {
   const at = new Date(iso);
   return at.getTime() - now < 24 * 3_600_000 ? sameDayTime.format(at) : otherDayTime.format(at);
+}
+
+/** 지난 시각: 오늘이면 시각만, 아니면 날짜와 시각 */
+export function formatAsOf(iso: string, now: number): string {
+  const at = new Date(iso);
+  return at.toDateString() === new Date(now).toDateString() ? sameDayTime.format(at) : otherDayTime.format(at);
 }
 
 /** 남은 시간을 시간 단위로, 분은 소수 한 자리로 (예: 2시간 40분 → "2.7시간") */
