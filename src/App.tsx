@@ -1,28 +1,32 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
+  getAccounts,
   getSettings,
   getSnapshot,
   hidePopover,
+  onAccountsChanged,
   onPopoverShown,
   onSettingsChanged,
   onSnapshotUpdated,
   quitApp,
   refreshNow,
+  reloginAccount,
   resizePopover,
   setSettings,
 } from "./api";
 import { AccountCard } from "./components/AccountCard";
 import { Footer } from "./components/Footer";
 import { RefreshIcon, SlidersIcon } from "./components/Icons";
-import { SettingsView } from "./components/SettingsView";
+import { AccountsSection, SettingsView } from "./components/SettingsView";
 import { t } from "./i18n";
-import type { Settings, Snapshot } from "./types";
+import type { Account, Settings, Snapshot } from "./types";
 
 /** 팝오버 화면 전체 */
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [settings, setSettingsState] = useState<Settings | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [view, setView] = useState<"main" | "settings">("main");
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
@@ -32,14 +36,18 @@ export default function App() {
   useEffect(() => {
     getSnapshot().then(setSnapshot);
     getSettings().then(setSettingsState);
+    getAccounts().then(setAccounts);
 
     const subscriptions = [
+      onAccountsChanged(setAccounts),
       onSnapshotUpdated((next) => {
         setSnapshot(next);
         setNow(Date.now());
       }),
       onSettingsChanged(setSettingsState),
       onPopoverShown(() => {
+        // 팝오버가 열릴 때 이전에 누른 버튼의 포커스 테두리가 남지 않게 한다.
+        (document.activeElement as HTMLElement | null)?.blur();
         setNow(Date.now());
         getSnapshot().then(setSnapshot);
       }),
@@ -94,7 +102,12 @@ export default function App() {
     <div className="popover">
       <div className="popover-content" ref={contentRef}>
         {snapshot && settings && view === "settings" && (
-          <SettingsView settings={settings} onChange={changeSettings} onBack={() => setView("main")} />
+          <SettingsView
+            settings={settings}
+            accounts={accounts}
+            onChange={changeSettings}
+            onBack={() => setView("main")}
+          />
         )}
 
         {snapshot && settings && view === "main" && (
@@ -113,10 +126,19 @@ export default function App() {
 
             <main className="accounts">
               {snapshot.accounts.length === 0 ? (
-                <p className="empty">{t("noAccounts")}</p>
+                <div className="empty">
+                  <p>{t("emptyHint")}</p>
+                  <AccountsSection accounts={accounts} compact />
+                </div>
               ) : (
                 snapshot.accounts.map((account) => (
-                  <AccountCard key={account.id} account={account} percentMode={settings.percentMode} now={now} />
+                  <AccountCard
+                    key={account.id}
+                    account={account}
+                    percentMode={settings.percentMode}
+                    now={now}
+                    onSignIn={reloginAccount}
+                  />
                 ))
               )}
             </main>

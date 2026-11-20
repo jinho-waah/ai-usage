@@ -1,7 +1,7 @@
 // 브라우저 미리보기(`npm run dev`)용 가짜 데이터.
 // 실제 앱에서는 쓰지 않는다. 앱 안의 가짜 데이터는 Rust(src-tauri/src/mock.rs)가 만든다.
 
-import type { AccountUsage, Settings, Snapshot, TrendPoint, UsageWindow } from "./types";
+import type { Account, AccountUsage, Settings, Snapshot, TrendPoint, UsageWindow } from "./types";
 
 const HOUR = 3_600_000;
 const WEEK_SECONDS = 7 * 24 * 3600;
@@ -22,7 +22,7 @@ function usageWindow(used: number, resetsInHours: number, windowSeconds: number)
 
 function trend(window: UsageWindow, previousFrom: number, previousTo: number): TrendPoint[] {
   const now = Date.now();
-  const cycleStart = new Date(window.resetsAt).getTime() - window.windowSeconds * 1000;
+  const cycleStart = new Date(window.resetsAt ?? Date.now()).getTime() - window.windowSeconds * 1000;
   const points: TrendPoint[] = [];
   for (let i = 0; i <= 168; i++) {
     const at = now - (168 - i) * HOUR;
@@ -45,7 +45,7 @@ export function mockSnapshot(): Snapshot {
       id: "mock-personal",
       provider: "claude",
       name: "개인",
-      label: { kind: "alias", text: "J" },
+      label: { kind: "name", text: "" },
       color: "#D97757",
       plan: "Max 20x",
       weekly: personalWeekly,
@@ -56,6 +56,8 @@ export function mockSnapshot(): Snapshot {
       ],
       extra: { used: 4.2, limit: 50, currency: "USD" },
       trend: trend(personalWeekly, 30, 72),
+      status: { kind: "ok" },
+      updatedAt: new Date().toISOString(),
     },
     {
       id: "mock-work",
@@ -69,6 +71,8 @@ export function mockSnapshot(): Snapshot {
       models: [],
       extra: null,
       trend: trend(workWeekly, 10, 64),
+      status: { kind: "ok" },
+      updatedAt: new Date().toISOString(),
     },
     {
       id: "mock-codex",
@@ -82,6 +86,8 @@ export function mockSnapshot(): Snapshot {
       models: [],
       extra: null,
       trend: trend(codexWeekly, 20, 80),
+      status: { kind: "needsLogin" },
+      updatedAt: new Date(Date.now() - 42 * 60_000).toISOString(),
     },
   ];
 
@@ -100,5 +106,18 @@ export function mockSnapshot(): Snapshot {
 }
 
 export function mockSettings(): Settings {
-  return { menubarStyle: "bars", percentMode: "used" };
+  return { menubarStyle: "bars", percentMode: "remaining" };
+}
+
+export function mockAccounts(): Account[] {
+  return mockSnapshot().accounts.map((account) => ({
+    id: account.id,
+    provider: account.provider,
+    name: account.name,
+    label: account.label,
+    color: account.color,
+    orgId: account.status.kind === "needsLogin" ? null : "mock-org",
+    orgName: account.provider === "claude" ? `${account.name}@example.com's Organization` : null,
+    plan: account.plan,
+  }));
 }

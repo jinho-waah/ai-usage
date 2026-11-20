@@ -54,9 +54,21 @@ const STATUS_ITEM_PADDING: f64 = 5.0;
 
 /// 그릴 조각 하나. 위치(x)는 이미지를 만들기 전에 미리 계산해 둔다.
 enum Piece {
-    Text { x: f64, text: String, warn: bool },
-    Dot { x: f64, rgb: (f64, f64, f64) },
-    Bar { x: f64, used: f64, elapsed: f64, warn: bool },
+    Text {
+        x: f64,
+        text: String,
+        warn: bool,
+    },
+    Dot {
+        x: f64,
+        rgb: (f64, f64, f64),
+    },
+    Bar {
+        x: f64,
+        used: f64,
+        elapsed: Option<f64>,
+        warn: bool,
+    },
 }
 
 /// 메뉴바 항목(상태 항목)의 이미지를 새로 그려서 바꿔 끼운다. 메인 스레드에서만 부를 것.
@@ -121,7 +133,11 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
         // 아직 계정이 없을 때
         let text = "AI".to_string();
         let width = text_width(&text, font);
-        pieces.push(Piece::Text { x, text, warn: false });
+        pieces.push(Piece::Text {
+            x,
+            text,
+            warn: false,
+        });
         return (pieces, x + width + EDGE_PADDING);
     }
 
@@ -136,9 +152,13 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
                 pieces.push(Piece::Dot { x, rgb: item.color });
                 x += DOT_SIZE;
             }
-            LabelKind::Alias | LabelKind::Emoji => {
+            LabelKind::Name | LabelKind::Emoji => {
                 let width = text_width(&item.label_text, font);
-                pieces.push(Piece::Text { x, text: item.label_text.clone(), warn: false });
+                pieces.push(Piece::Text {
+                    x,
+                    text: item.label_text.clone(),
+                    warn: false,
+                });
                 x += width;
             }
         }
@@ -147,10 +167,12 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
         // 2) 막대 또는 숫자
         match model.style {
             MenubarStyle::Bars => {
+                // 남은 양 모드면 채움·눈금이 뒤집힌 값이 온다 (model.bar_values 참고)
+                let (fill, marker) = model.bar_values(item);
                 pieces.push(Piece::Bar {
                     x,
-                    used: item.used_percent,
-                    elapsed: item.elapsed_percent,
+                    used: fill,
+                    elapsed: marker,
                     warn: item.warn,
                 });
                 x += BAR_WIDTH;
@@ -158,7 +180,11 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
             MenubarStyle::Numbers => {
                 let text = model.number_text(item);
                 let width = text_width(&text, font);
-                pieces.push(Piece::Text { x, text, warn: item.warn });
+                pieces.push(Piece::Text {
+                    x,
+                    text,
+                    warn: item.warn,
+                });
                 x += width;
             }
         }
@@ -192,7 +218,12 @@ fn draw(pieces: &[Piece], font: &NSFont, height: f64) {
                 );
                 NSBezierPath::bezierPathWithOvalInRect(rect).fill();
             }
-            Piece::Bar { x, used, elapsed, warn } => {
+            Piece::Bar {
+                x,
+                used,
+                elapsed,
+                warn,
+            } => {
                 let fill_color = if *warn { &red } else { &normal };
                 draw_bar(*x, center_y, *used, *elapsed, fill_color, &normal);
             }
@@ -201,7 +232,14 @@ fn draw(pieces: &[Piece], font: &NSFont, height: f64) {
 }
 
 /// 막대 하나: 흐린 바탕 → 사용량만큼 채움 → 시간 눈금.
-fn draw_bar(x: f64, center_y: f64, used: f64, elapsed: f64, fill: &NSColor, base: &NSColor) {
+fn draw_bar(
+    x: f64,
+    center_y: f64,
+    used: f64,
+    elapsed: Option<f64>,
+    fill: &NSColor,
+    base: &NSColor,
+) {
     let Some(context) = NSGraphicsContext::currentContext() else {
         return;
     };
@@ -210,7 +248,8 @@ fn draw_bar(x: f64, center_y: f64, used: f64, elapsed: f64, fill: &NSColor, base
         NSSize::new(BAR_WIDTH, BAR_HEIGHT),
     );
     let radius = BAR_HEIGHT / 2.0;
-    let bar_shape = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(bar_rect, radius, radius);
+    let bar_shape =
+        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(bar_rect, radius, radius);
 
     // 1) 바탕 (흐리게)
     base.colorWithAlphaComponent(0.3).setFill();
@@ -222,12 +261,18 @@ fn draw_bar(x: f64, center_y: f64, used: f64, elapsed: f64, fill: &NSColor, base
         context.saveGraphicsState();
         bar_shape.addClip();
         fill.setFill();
-        NSBezierPath::bezierPathWithRect(NSRect::new(bar_rect.origin, NSSize::new(fill_width, BAR_HEIGHT)))
-            .fill();
+        NSBezierPath::bezierPathWithRect(NSRect::new(
+            bar_rect.origin,
+            NSSize::new(fill_width, BAR_HEIGHT),
+        ))
+        .fill();
         context.restoreGraphicsState();
     }
 
-    // 3) 시간 눈금: 양옆을 투명하게 지운 뒤 막대보다 길게 그린다.
+    // 3) 시간 눈금: 양옆을 투명하게 지운 뒤 막대보다 길게 그린다. 리셋 시각을 모르면 그리지 않는다.
+    let Some(elapsed) = elapsed else {
+        return;
+    };
     let marker_center = x + BAR_WIDTH * elapsed.clamp(0.0, 100.0) / 100.0;
     let marker_height = BAR_HEIGHT + MARKER_OVERHANG * 2.0;
     let marker_bottom = center_y - marker_height / 2.0;
@@ -235,7 +280,10 @@ fn draw_bar(x: f64, center_y: f64, used: f64, elapsed: f64, fill: &NSColor, base
     context.saveGraphicsState();
     context.setCompositingOperation(NSCompositingOperation::Clear);
     NSBezierPath::bezierPathWithRect(NSRect::new(
-        NSPoint::new(marker_center - MARKER_WIDTH / 2.0 - MARKER_GAP, marker_bottom),
+        NSPoint::new(
+            marker_center - MARKER_WIDTH / 2.0 - MARKER_GAP,
+            marker_bottom,
+        ),
         NSSize::new(MARKER_WIDTH + MARKER_GAP * 2.0, marker_height),
     ))
     .fill();
@@ -284,7 +332,11 @@ pub fn render_preview_png(model: &MenubarModel, dark: bool, path: &Path) -> Resu
     let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&bitmap)
         .ok_or("그리기 영역을 만들지 못했어요")?;
     let appearance_name = unsafe {
-        if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua }
+        if dark {
+            NSAppearanceNameDarkAqua
+        } else {
+            NSAppearanceNameAqua
+        }
     };
     let appearance =
         NSAppearance::appearanceNamed(appearance_name).ok_or("화면 모드를 찾지 못했어요")?;
@@ -293,10 +345,17 @@ pub fn render_preview_png(model: &MenubarModel, dark: bool, path: &Path) -> Resu
     NSGraphicsContext::setCurrentContext(Some(&context));
     let image_ref: &NSImage = &image;
     let draw_block = StackBlock::new(move || {
-        let (r, g, b) = if dark { (0.17, 0.17, 0.19) } else { (0.92, 0.92, 0.93) };
+        let (r, g, b) = if dark {
+            (0.17, 0.17, 0.19)
+        } else {
+            (0.92, 0.92, 0.93)
+        };
         NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0).setFill();
-        NSBezierPath::bezierPathWithRect(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height)))
-            .fill();
+        NSBezierPath::bezierPathWithRect(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(width, height),
+        ))
+        .fill();
         image_ref.drawInRect(NSRect::new(NSPoint::new(padding, padding), size));
     });
     appearance.performAsCurrentDrawingAppearance(&draw_block);

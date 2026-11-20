@@ -1,68 +1,268 @@
 //! 앱의 시작점.
 //!
 //! 하는 일
-//! 1. 앱 상태(사용량 스냅샷, 설정)를 만든다.
+//! 1. 앱 상태(계정 목록, 설정, 조회 결과)를 만든다.
 //! 2. 메뉴바 아이콘을 만들고, 누르면 팝오버가 열리게 연결한다.
-//! 3. 1분마다 데이터를 갱신해서 메뉴바와 팝오버 화면에 알린다.
+//! 3. 1분마다 모든 계정의 사용량을 새로 조회해서 메뉴바와 팝오버에 알린다.
 //! 4. React 화면이 부를 수 있는 명령(`#[tauri::command]`)을 등록한다.
 
+mod accounts;
+mod claude;
+mod claude_web;
+mod codex;
+mod history;
+mod legacy;
 mod menubar;
 mod mock;
 mod model;
 mod popover;
+mod refresh;
 mod settings;
+mod state;
+#[cfg(target_os = "macos")]
+mod webview_js;
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 
-use crate::menubar::MenubarModel;
-use crate::model::Snapshot;
+use crate::accounts::{Account, AccountEdit};
+use crate::history::{History, WindowKind};
+use crate::model::{Provider, Snapshot};
+use crate::refresh::TRAY_ID;
 use crate::settings::Settings;
+use crate::state::AppState;
 
-const TRAY_ID: &str = "main";
 /// 구독 사용량 갱신 주기 (스펙: 1분 고정)
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
-/// 앱이 켜져 있는 동안 여러 곳에서 함께 쓰는 상태.
-struct AppState {
-    snapshot: Mutex<Snapshot>,
-    settings: Mutex<Settings>,
-    settings_path: PathBuf,
-    /// 앱을 켠 시각. M1 가짜 데이터의 리셋 시각 기준.
-    started_at: DateTime<Utc>,
-}
-
 // ───────── React 화면에서 부르는 명령 ─────────
 // `#[tauri::command]` 가 붙은 함수는 화면에서 `invoke("함수이름")` 으로 부를 수 있다.
-// `State<AppState>` 인자는 Tauri 가 알아서 채워 준다.
+// `async` 명령은 화면을 멈추지 않고 뒤에서 실행된다.
 
 #[tauri::command]
-fn get_snapshot(state: State<AppState>) -> Snapshot {
-    state.snapshot.lock().unwrap().clone()
+fn get_snapshot(app: AppHandle) -> Snapshot {
+    app.state::<AppState>().snapshot.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn get_settings(state: State<AppState>) -> Settings {
-    state.settings.lock().unwrap().clone()
+async fn refresh_now(app: AppHandle) -> Snapshot {
+    refresh::refresh_all(&app).await
 }
 
 #[tauri::command]
-fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> Result<(), String> {
+fn get_settings(app: AppHandle) -> Settings {
+    app.state::<AppState>().settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    let state = app.state::<AppState>();
     settings::save(&state.settings_path, &settings)?;
     *state.settings.lock().unwrap() = settings.clone();
-    update_menubar(&app);
+    refresh::update_menubar(&app);
     let _ = app.emit("settings-changed", &settings);
     Ok(())
 }
 
 #[tauri::command]
-fn refresh_now(app: AppHandle) -> Snapshot {
-    refresh(&app)
+fn get_accounts(app: AppHandle) -> Vec<Account> {
+    app.state::<AppState>().accounts()
+}
+
+/// Claude 계정을 새로 만들고 로그인 창을 연다.
+#[tauri::command]
+fn add_claude_account(app: AppHandle) -> Result<Account, String> {
+    let state = app.state::<AppState>();
+    let mut added = None;
+    let accounts = state.update_accounts(|accounts| {
+        let account = Account::new_claude(accounts);
+        added = Some(account.clone());
+        accounts.push(account);
+    })?;
+    let account = added.ok_or("계정을 만들지 못했어요")?;
+    accounts_changed(&app, &accounts);
+    claude_web::start_login(app.clone(), account.id.clone());
+    Ok(account)
+}
+
+/// Codex 를 추가한다. Codex CLI 로그인(~/.codex/auth.json)이 있어야 한다.
+#[tauri::command]
+async fn add_codex_account(app: AppHandle) -> Result<Account, String> {
+    let state = app.state::<AppState>();
+    if state
+        .accounts()
+        .iter()
+        .any(|account| account.provider == Provider::Codex)
+    {
+        return Err("Codex 는 이미 추가돼 있어요".to_string());
+    }
+    codex::read_credentials(&codex::codex_home())?;
+
+    let account = Account::new_codex();
+    let accounts = state.update_accounts(|accounts| accounts.push(account.clone()))?;
+    accounts_changed(&app, &accounts);
+    refresh::refresh_codex_account(&app, &account).await;
+    refresh::record_history(&state);
+    refresh::publish(&app);
+    backfill_codex_history(app.clone());
+    Ok(account)
+}
+
+/// Codex 세션 로그에 남은 지난 한도 기록을 그래프용 기록 DB 로 가져온다. 계정마다 한 번만 한다.
+fn backfill_codex_history(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let Some(history) = &state.history else {
+            return;
+        };
+        let pending: Vec<Account> = state
+            .accounts()
+            .into_iter()
+            .filter(|account| account.provider == Provider::Codex)
+            .filter(|account| {
+                history
+                    .meta(&format!("codex-log-import:{}", account.id))
+                    .is_none()
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        // 로그 파일이 클 수 있어서 별도 스레드에서 읽는다
+        let logged =
+            tauri::async_runtime::spawn_blocking(|| codex::all_logged_usage(&codex::codex_home()))
+                .await
+                .unwrap_or_default();
+        let weekly: Vec<history::Sample> = logged
+            .iter()
+            .filter_map(|(at, usage)| {
+                usage.reading.weekly.as_ref().map(|w| history::Sample {
+                    at: *at,
+                    used_percent: w.percent,
+                })
+            })
+            .collect();
+        let session: Vec<history::Sample> = logged
+            .iter()
+            .filter_map(|(at, usage)| {
+                usage.reading.session.as_ref().map(|w| history::Sample {
+                    at: *at,
+                    used_percent: w.percent,
+                })
+            })
+            .collect();
+        for account in pending {
+            let _ = history.import(&account.id, WindowKind::Weekly, &weekly, "codex-log");
+            let _ = history.import(&account.id, WindowKind::Session, &session, "codex-log");
+            let _ = history.set_meta(
+                &format!("codex-log-import:{}", account.id),
+                &Utc::now().to_rfc3339(),
+            );
+        }
+        refresh::publish(&app);
+    });
+}
+
+/// 원본 Claude Usage 앱의 프로필 목록 (기록을 가져올 수 있는 것만)
+#[tauri::command]
+async fn list_legacy_profiles() -> Vec<legacy::LegacyProfile> {
+    tauri::async_runtime::spawn_blocking(legacy::list_profiles)
+        .await
+        .unwrap_or_default()
+}
+
+/// 원본 앱 프로필 하나의 기록을 우리 계정 하나로 가져온다. 가져온 기록 수를 돌려준다.
+#[tauri::command]
+async fn import_legacy_history(
+    app: AppHandle,
+    profile_id: String,
+    account_id: String,
+) -> Result<usize, String> {
+    let state = app.state::<AppState>();
+    if !state
+        .accounts()
+        .iter()
+        .any(|account| account.id == account_id)
+    {
+        return Err("계정을 찾지 못했어요".to_string());
+    }
+    let legacy_history =
+        tauri::async_runtime::spawn_blocking(move || legacy::read_history(&profile_id))
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or("원본 앱 기록을 읽지 못했어요")?;
+    let history = state
+        .history
+        .as_ref()
+        .ok_or("기록 저장소를 열지 못했어요")?;
+    let mut imported = history.import(
+        &account_id,
+        WindowKind::Weekly,
+        &legacy_history.weekly,
+        "claude-usage-app",
+    )?;
+    imported += history.import(
+        &account_id,
+        WindowKind::Session,
+        &legacy_history.session,
+        "claude-usage-app",
+    )?;
+    refresh::publish(&app);
+    Ok(imported)
+}
+
+/// 이름·라벨·색을 고친다.
+#[tauri::command]
+fn update_account(app: AppHandle, edit: AccountEdit) -> Result<(), String> {
+    let accounts = app.state::<AppState>().update_accounts(|accounts| {
+        if let Some(account) = accounts.iter_mut().find(|account| account.id == edit.id) {
+            edit.apply_to(account);
+        }
+    })?;
+    accounts_changed(&app, &accounts);
+    Ok(())
+}
+
+/// 계정 순서를 위(-1)·아래(+1)로 바꾼다.
+#[tauri::command]
+fn move_account(app: AppHandle, id: String, offset: i32) -> Result<(), String> {
+    let accounts = app
+        .state::<AppState>()
+        .update_accounts(|accounts| accounts::move_account(accounts, &id, offset))?;
+    accounts_changed(&app, &accounts);
+    Ok(())
+}
+
+/// 로그인 창을 다시 연다. (세션 만료, Cloudflare 확인이 필요할 때)
+#[tauri::command]
+fn relogin_account(app: AppHandle, id: String) {
+    claude_web::start_login(app, id);
+}
+
+/// 계정을 지운다. 그 계정의 로그인 쿠키 저장소도 함께 지운다.
+#[tauri::command]
+async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let removed = state
+        .accounts()
+        .into_iter()
+        .find(|account| account.id == id);
+    let accounts = state.update_accounts(|accounts| accounts.retain(|account| account.id != id))?;
+    state.account_data.lock().unwrap().remove(&id);
+    if let Some(history) = &state.history {
+        let _ = history.delete_account(&id);
+    }
+    accounts_changed(&app, &accounts);
+    if let Some(account) = removed {
+        claude_web::forget_account(&app, &account).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -80,43 +280,23 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-// ───────── 갱신 ─────────
-
-/// 데이터를 새로 만들고(M1 은 가짜 데이터), 메뉴바를 다시 그리고, 화면에 알린다.
-fn refresh(app: &AppHandle) -> Snapshot {
-    let state = app.state::<AppState>();
-    let snapshot = mock::snapshot(state.started_at, Utc::now());
-    *state.snapshot.lock().unwrap() = snapshot.clone();
-    update_menubar(app);
-    let _ = app.emit("snapshot-updated", &snapshot);
-    snapshot
+/// 계정 목록이 바뀌었음을 화면에 알리고, 메뉴바·팝오버를 다시 그린다.
+fn accounts_changed(app: &AppHandle, accounts: &[Account]) {
+    let _ = app.emit("accounts-changed", accounts);
+    refresh::publish(app);
 }
 
-/// 현재 스냅샷과 설정으로 메뉴바 아이콘을 다시 그린다.
-fn update_menubar(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let model = MenubarModel::from_snapshot(
-        &state.snapshot.lock().unwrap(),
-        &state.settings.lock().unwrap(),
-    );
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return;
-    };
+/// 창 이벤트 처리
+fn on_window_event(window: &Window, event: &WindowEvent) {
+    popover::on_window_event(window, event);
 
-    #[cfg(target_os = "macos")]
+    // 계정 로그인 창은 닫아도 없애지 않고 숨긴다. 숨은 채로 사용량 조회에 계속 쓴다.
+    if window.label().starts_with(accounts::WINDOW_LABEL_PREFIX)
+        && let WindowEvent::CloseRequested { api, .. } = event
     {
-        // Tauri 가 감싸고 있는 실제 macOS 메뉴바 객체를 메인 스레드에서 꺼내 그림을 바꿔 끼운다.
-        let _ = tray.with_inner_tray_icon(move |inner| {
-            if let (Some(status_item), Some(mtm)) =
-                (inner.ns_status_item(), objc2::MainThreadMarker::new())
-            {
-                menubar::macos::apply(&status_item, &model, mtm);
-            }
-        });
+        api.prevent_close();
+        let _ = window.hide();
     }
-
-    // 툴팁을 다시 넣으면 Tauri 가 클릭 영역을 새 아이콘 크기에 맞춰 준다.
-    let _ = tray.set_tooltip(Some("AI Usage"));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -129,12 +309,30 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            let settings_path = app.path().app_config_dir()?.join("settings.json");
+            let config_dir = app.path().app_config_dir()?;
+            let settings_path: PathBuf = config_dir.join("settings.json");
+            let accounts_path: PathBuf = config_dir.join("accounts.json");
+            let history = match History::open(&config_dir.join("usage.db")) {
+                Ok(history) => Some(history),
+                Err(error) => {
+                    eprintln!("[ai-usage] 기록 DB 를 열지 못했어요: {error}");
+                    None
+                }
+            };
             let started_at = Utc::now();
+            let demo = std::env::var("AI_USAGE_DEMO").is_ok_and(|value| value == "1");
+
             app.manage(AppState {
                 snapshot: Mutex::new(mock::snapshot(started_at, started_at)),
                 settings: Mutex::new(settings::load(&settings_path)),
                 settings_path,
+                accounts: Mutex::new(accounts::load(&accounts_path)),
+                accounts_path,
+                account_data: Mutex::new(HashMap::new()),
+                logging_in: Mutex::new(HashSet::new()),
+                refresh_lock: tokio::sync::Mutex::new(()),
+                history,
+                demo,
                 started_at,
             });
 
@@ -158,24 +356,38 @@ pub fn run() {
                 popover::configure_macos(&window);
             }
 
-            // 1분마다 갱신한다. interval 의 첫 tick 은 바로 끝나므로 시작하자마자 한 번 그린다.
+            // 실제 데이터를 받기 전까지는 빈 화면(계정만 보이는 상태)으로 바로 그린다.
+            refresh::publish(app.handle());
+            // Codex 지난 기록을 처음 한 번 가져온다 (이미 했으면 아무것도 안 함)
+            backfill_codex_history(app.handle().clone());
+
+            // 1분마다 갱신한다. interval 의 첫 tick 은 바로 끝나므로 시작하자마자 한 번 조회한다.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut ticker = tokio::time::interval(REFRESH_INTERVAL);
                 loop {
                     ticker.tick().await;
-                    refresh(&handle);
+                    refresh::refresh_all(&handle).await;
                 }
             });
 
             Ok(())
         })
-        .on_window_event(popover::on_window_event)
+        .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            refresh_now,
             get_settings,
             set_settings,
-            refresh_now,
+            get_accounts,
+            add_claude_account,
+            add_codex_account,
+            list_legacy_profiles,
+            import_legacy_history,
+            update_account,
+            move_account,
+            relogin_account,
+            remove_account,
             resize_popover,
             hide_popover,
             quit_app
@@ -189,6 +401,7 @@ pub fn run() {
 #[cfg(target_os = "macos")]
 #[doc(hidden)]
 pub fn dev_render_menubar_previews(dir: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+    use crate::menubar::MenubarModel;
     use crate::settings::{MenubarStyle, PercentMode};
 
     std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
@@ -196,13 +409,21 @@ pub fn dev_render_menubar_previews(dir: &std::path::Path) -> Result<Vec<PathBuf>
     let snapshot = mock::snapshot(now, now);
 
     let variants = [
+        ("bars-remaining", MenubarStyle::Bars, PercentMode::Remaining),
         ("bars", MenubarStyle::Bars, PercentMode::Used),
         ("numbers-used", MenubarStyle::Numbers, PercentMode::Used),
-        ("numbers-remaining", MenubarStyle::Numbers, PercentMode::Remaining),
+        (
+            "numbers-remaining",
+            MenubarStyle::Numbers,
+            PercentMode::Remaining,
+        ),
     ];
     let mut written = Vec::new();
     for (name, style, percent_mode) in variants {
-        let settings = Settings { menubar_style: style, percent_mode };
+        let settings = Settings {
+            menubar_style: style,
+            percent_mode,
+        };
         let model = MenubarModel::from_snapshot(&snapshot, &settings);
         for (mode, dark) in [("light", false), ("dark", true)] {
             let path = dir.join(format!("menubar-{name}-{mode}.png"));

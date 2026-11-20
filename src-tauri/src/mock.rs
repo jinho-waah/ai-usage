@@ -8,8 +8,8 @@
 use chrono::{DateTime, Duration, Timelike, Utc};
 
 use crate::model::{
-    AccountLabel, AccountUsage, ExtraUsage, LabelKind, ModelUsage, Provider, ServiceState,
-    ServiceStatus, Snapshot, Summary, TokenCost, TrendPoint, UsageWindow,
+    AccountLabel, AccountStatus, AccountUsage, ExtraUsage, LabelKind, ModelUsage, Provider,
+    ServiceState, ServiceStatus, Snapshot, Summary, TokenCost, TrendPoint, UsageWindow,
 };
 
 const WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -19,27 +19,27 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
     // 개인: 페이스와 비슷하게 쓰는 중 (단색)
     let personal_weekly = UsageWindow::new(
         58.0,
-        started_at + Duration::days(3) + Duration::hours(2),
+        Some(started_at + Duration::days(3) + Duration::hours(2)),
         WEEK_SECONDS,
         now,
     );
     // 회사: 주 초반인데 많이 씀 → 시간 눈금보다 5%p 이상 앞서서 빨강
     let work_weekly = UsageWindow::new(
         41.0,
-        started_at + Duration::days(5) + Duration::hours(9),
+        Some(started_at + Duration::days(5) + Duration::hours(9)),
         WEEK_SECONDS,
         now,
     );
     let work_session = UsageWindow::new(
         12.0,
-        started_at + Duration::hours(2) + Duration::minutes(40),
+        Some(started_at + Duration::hours(2) + Duration::minutes(40)),
         FIVE_HOURS_SECONDS,
         now,
     );
     // Codex: 주 후반, 여유 있음
     let codex_weekly = UsageWindow::new(
         55.0,
-        started_at + Duration::days(1) + Duration::hours(4),
+        Some(started_at + Duration::days(1) + Duration::hours(4)),
         WEEK_SECONDS,
         now,
     );
@@ -49,23 +49,41 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             id: "mock-personal".into(),
             provider: Provider::Claude,
             name: "개인".into(),
-            label: AccountLabel { kind: LabelKind::Alias, text: "J".into() },
+            label: AccountLabel {
+                kind: LabelKind::Name,
+                text: String::new(),
+            },
             color: "#D97757".into(),
             plan: Some("Max 20x".into()),
             trend: weekly_trend(&personal_weekly, now, 30.0, 72.0),
             weekly: Some(personal_weekly),
             session: None,
             models: vec![
-                ModelUsage { name: "Opus".into(), used_percent: 12.0 },
-                ModelUsage { name: "Sonnet".into(), used_percent: 31.0 },
+                ModelUsage {
+                    name: "Opus".into(),
+                    used_percent: 12.0,
+                },
+                ModelUsage {
+                    name: "Sonnet".into(),
+                    used_percent: 31.0,
+                },
             ],
-            extra: Some(ExtraUsage { used: 4.2, limit: Some(50.0), currency: "USD".into() }),
+            extra: Some(ExtraUsage {
+                used: 4.2,
+                limit: Some(50.0),
+                currency: "USD".into(),
+            }),
+            status: AccountStatus::Ok,
+            updated_at: Some(now),
         },
         AccountUsage {
             id: "mock-work".into(),
             provider: Provider::Claude,
             name: "회사".into(),
-            label: AccountLabel { kind: LabelKind::Emoji, text: "💼".into() },
+            label: AccountLabel {
+                kind: LabelKind::Emoji,
+                text: "💼".into(),
+            },
             color: "#6A9BCC".into(),
             plan: Some("Pro".into()),
             trend: weekly_trend(&work_weekly, now, 10.0, 64.0),
@@ -73,12 +91,17 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             session: Some(work_session),
             models: vec![],
             extra: None,
+            status: AccountStatus::Ok,
+            updated_at: Some(now),
         },
         AccountUsage {
             id: "mock-codex".into(),
             provider: Provider::Codex,
             name: "Codex".into(),
-            label: AccountLabel { kind: LabelKind::Dot, text: String::new() },
+            label: AccountLabel {
+                kind: LabelKind::Dot,
+                text: String::new(),
+            },
             color: "#10A37F".into(),
             plan: Some("Pro".into()),
             trend: weekly_trend(&codex_weekly, now, 20.0, 80.0),
@@ -86,17 +109,28 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             session: None,
             models: vec![],
             extra: None,
+            status: AccountStatus::Ok,
+            updated_at: Some(now),
         },
     ];
 
     Snapshot {
         accounts,
         summary: Summary {
-            claude_code_today: Some(TokenCost { tokens: 1_240_000, cost_usd: 12.4 }),
+            claude_code_today: Some(TokenCost {
+                tokens: 1_240_000,
+                cost_usd: 12.4,
+            }),
             api_month_cost_usd: Some(3.1),
             services: vec![
-                ServiceStatus { name: "Claude".into(), state: ServiceState::Operational },
-                ServiceStatus { name: "OpenAI".into(), state: ServiceState::Operational },
+                ServiceStatus {
+                    name: "Claude".into(),
+                    state: ServiceState::Operational,
+                },
+                ServiceStatus {
+                    name: "OpenAI".into(),
+                    state: ServiceState::Operational,
+                },
             ],
         },
         updated_at: now,
@@ -112,7 +146,7 @@ fn weekly_trend(
     prev_from: f64,
     prev_to: f64,
 ) -> Vec<TrendPoint> {
-    let cycle_start = window.resets_at - Duration::seconds(window.window_seconds);
+    let cycle_start = window.resets_at.unwrap_or(now) - Duration::seconds(window.window_seconds);
     let hours: Vec<DateTime<Utc>> = (0..=168).map(|i| now - Duration::hours(168 - i)).collect();
 
     // 시간대별 활동량: 한국 시간 새벽에는 적게, 저녁에는 많이 쓴다고 가정
@@ -127,8 +161,16 @@ fn weekly_trend(
         }
     };
 
-    let current_total: f64 = hours.iter().filter(|t| **t >= cycle_start).map(activity).sum();
-    let previous_total: f64 = hours.iter().filter(|t| **t < cycle_start).map(activity).sum();
+    let current_total: f64 = hours
+        .iter()
+        .filter(|t| **t >= cycle_start)
+        .map(activity)
+        .sum();
+    let previous_total: f64 = hours
+        .iter()
+        .filter(|t| **t < cycle_start)
+        .map(activity)
+        .sum();
 
     let mut current_sum = 0.0;
     let mut previous_sum = 0.0;

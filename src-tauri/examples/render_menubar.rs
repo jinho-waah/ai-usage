@@ -4,7 +4,9 @@
 //! 실행: (src-tauri 폴더에서) cargo run --example render_menubar -- <저장할 폴더>
 
 fn main() {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "menubar-previews".to_string());
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "menubar-previews".to_string());
 
     #[cfg(target_os = "macos")]
     match ai_usage_lib::dev_render_menubar_previews(std::path::Path::new(&dir)) {

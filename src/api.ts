@@ -6,11 +6,111 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { mockSettings, mockSnapshot } from "./mock";
-import type { Settings, Snapshot } from "./types";
+import { mockAccounts, mockSettings, mockSnapshot } from "./mock";
+import type { Account, AccountEdit, LegacyProfile, Settings, Snapshot } from "./types";
 
 const inApp = isTauri();
 let browserSettings: Settings = mockSettings();
+let browserAccounts: Account[] = mockAccounts();
+
+// ───────── 계정 ─────────
+
+export function getAccounts(): Promise<Account[]> {
+  return inApp ? invoke<Account[]>("get_accounts") : Promise.resolve(browserAccounts);
+}
+
+/** Claude 계정을 새로 만들고 로그인 창을 연다. */
+export function addClaudeAccount(): Promise<Account> {
+  if (inApp) return invoke<Account>("add_claude_account");
+  const account: Account = {
+    id: `browser-${browserAccounts.length + 1}`,
+    provider: "claude",
+    name: `Claude ${browserAccounts.length + 1}`,
+    label: { kind: "name", text: "" },
+    color: "#B07CC6",
+    orgId: null,
+    orgName: null,
+    plan: null,
+  };
+  browserAccounts = [...browserAccounts, account];
+  return Promise.resolve(account);
+}
+
+/** Codex 를 추가한다. Codex CLI 로그인이 없으면 오류 메시지를 던진다. */
+export function addCodexAccount(): Promise<Account> {
+  if (inApp) return invoke<Account>("add_codex_account");
+  if (browserAccounts.some((account) => account.provider === "codex")) {
+    return Promise.reject("Codex 는 이미 추가돼 있어요");
+  }
+  const account: Account = {
+    id: "browser-codex",
+    provider: "codex",
+    name: "Codex",
+    label: { kind: "name", text: "" },
+    color: "#10A37F",
+    orgId: null,
+    orgName: null,
+    plan: "Pro",
+  };
+  browserAccounts = [...browserAccounts, account];
+  return Promise.resolve(account);
+}
+
+export async function updateAccount(edit: AccountEdit): Promise<void> {
+  if (inApp) return invoke("update_account", { edit });
+  browserAccounts = browserAccounts.map((account) =>
+    account.id === edit.id ? { ...account, name: edit.name, label: edit.label, color: edit.color } : account,
+  );
+}
+
+export async function moveAccount(id: string, offset: number): Promise<void> {
+  if (inApp) return invoke("move_account", { id, offset });
+  const index = browserAccounts.findIndex((account) => account.id === id);
+  const target = index + offset;
+  if (index < 0 || target < 0 || target >= browserAccounts.length) return;
+  const next = [...browserAccounts];
+  [next[index], next[target]] = [next[target], next[index]];
+  browserAccounts = next;
+}
+
+/** 로그인 창을 다시 연다. */
+export function reloginAccount(id: string): Promise<void> {
+  return inApp ? invoke("relogin_account", { id }) : Promise.resolve();
+}
+
+/** 계정을 지운다. 그 계정의 로그인 정보도 함께 지운다. */
+export async function removeAccount(id: string): Promise<void> {
+  if (inApp) return invoke("remove_account", { id });
+  browserAccounts = browserAccounts.filter((account) => account.id !== id);
+}
+
+/** 원본 Claude Usage 앱에서 가져올 수 있는 프로필 목록 */
+export function listLegacyProfiles(): Promise<LegacyProfile[]> {
+  if (inApp) return invoke<LegacyProfile[]>("list_legacy_profiles");
+  const now = Date.now();
+  return Promise.resolve([
+    {
+      id: "mock-legacy",
+      name: "Jinho",
+      weeklyCount: 500,
+      sessionCount: 1000,
+      firstAt: new Date(now - 52 * 86_400_000).toISOString(),
+      lastAt: new Date(now).toISOString(),
+    },
+  ]);
+}
+
+/** 원본 앱 프로필의 기록을 계정 하나로 가져온다. 가져온 기록 수를 돌려준다. */
+export function importLegacyHistory(profileId: string, accountId: string): Promise<number> {
+  return inApp ? invoke<number>("import_legacy_history", { profileId, accountId }) : Promise.resolve(123);
+}
+
+export function onAccountsChanged(callback: (accounts: Account[]) => void): Promise<UnlistenFn> {
+  if (!inApp) return Promise.resolve(() => {});
+  return listen<Account[]>("accounts-changed", (event) => callback(event.payload));
+}
+
+// ───────── 사용량·설정 ─────────
 
 export function getSnapshot(): Promise<Snapshot> {
   return inApp ? invoke<Snapshot>("get_snapshot") : Promise.resolve(mockSnapshot());

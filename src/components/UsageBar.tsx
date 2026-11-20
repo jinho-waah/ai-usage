@@ -1,11 +1,11 @@
 import type { CSSProperties } from "react";
 
 interface UsageBarProps {
-  /** 사용량 0~100. 막대는 항상 사용량만큼 채운다. */
+  /** 채울 양 0~100 (사용한 양 또는 남은 양) */
   used: number;
-  /** 시간 눈금 위치 0~100. 없으면 눈금을 그리지 않는다. */
+  /** 시간 눈금 위치 0~100 (지난 시간 또는 남은 시간). 없으면 눈금을 그리지 않는다. */
   elapsed?: number;
-  /** true 면 빨강 (사용량이 시간 진행보다 5%p 이상 앞섬) */
+  /** true 면 빨강 (빨리 쓰는 중: 사용량이 시간보다 5%p 이상 앞섬) */
   warn?: boolean;
 }
 

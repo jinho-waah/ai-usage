@@ -6,6 +6,45 @@ const lang: "ko" | "en" = locale.toLowerCase().startsWith("ko") ? "ko" : "en";
 
 const strings = {
   ko: {
+    accounts: "계정",
+    importTitle: "다른 앱 기록 가져오기",
+    importHelp: "원본 Claude Usage 앱에 남은 사용률 기록을 계정 그래프로 가져와요. 어느 계정의 기록인지 골라 주세요.",
+    chooseAccount: "계정 선택",
+    importButton: "가져오기",
+    imported: "{count}개 가져왔어요",
+    legacyRecords: "주간 {weekly}개 · 세션 {session}개",
+    addClaudeAccount: "Claude 계정 추가",
+    addCodex: "Codex 추가",
+    codexCli: "Codex CLI 로그인",
+    codexNeedsLogin: "Codex CLI 로그인이 필요해요 (터미널에서 codex login)",
+    staleAsOf: "{time} 기준",
+    loginWindowOpened: "로그인 창이 열렸어요. claude.ai 에 로그인하면 창이 저절로 닫히고 사용량이 보여요.",
+    googleLoginHint: "구글 로그인이 막히면 이메일로 로그인해 주세요.",
+    emptyHint: "Claude 계정이나 Codex 를 추가하면 사용량이 여기에 보여요.",
+    loading: "불러오는 중…",
+    needsLogin: "로그인이 필요해요",
+    challenge: "claude.ai 확인이 필요해요",
+    signIn: "로그인",
+    open: "열기",
+    notUsedYet: "아직 사용 전이에요",
+    noUsageData: "사용량 정보가 없어요",
+    staleSince: "{time} 데이터",
+    notSignedIn: "로그인 전",
+    edit: "편집",
+    save: "저장",
+    cancel: "취소",
+    remove: "삭제",
+    confirmRemove: "한 번 더 누르면 삭제",
+    relogin: "다시 로그인",
+    moveUp: "위로",
+    moveDown: "아래로",
+    name: "이름",
+    menubarLabel: "메뉴바 라벨",
+    labelName: "이름",
+    labelNameHelp: "메뉴바에 이름이 그대로 나와요 (앞 8글자까지)",
+    emoji: "이모지",
+    dot: "색 점",
+    color: "색",
     refresh: "새로고침",
     settings: "설정",
     back: "뒤로",
@@ -17,6 +56,7 @@ const strings = {
     models: "모델별 한도",
     extraUsage: "Extra usage",
     recentTrend: "최근 7일",
+    recentSpan: "최근 {duration}",
     claudeCodeToday: "Claude Code 오늘",
     tokens: "{count} 토큰",
     apiThisMonth: "API 이번 달",
@@ -30,22 +70,61 @@ const strings = {
     history: "히스토리",
     quit: "종료",
     comingLater: "다음 단계에서 추가돼요",
-    noAccounts: "아직 등록된 계정이 없어요",
     menubarStyle: "메뉴바 표시",
     bars: "막대",
     numbers: "숫자",
-    menubarStyleHelp:
-      "막대는 주간 사용량을, 세로 눈금은 주간 시간이 얼마나 지났는지를 보여 줘요. 사용량이 눈금보다 5%p 이상 앞서면 빨강으로 바뀌어요.",
-    percentMode: "퍼센트 기준",
-    used: "사용한 %",
-    remaining: "남은 %",
-    percentModeHelp: "숫자로 보여 줄 때의 기준이에요. 막대는 항상 사용량만큼 채워져요.",
-    settingsNote: "계정 추가와 API 키 설정은 다음 단계에서 추가돼요.",
+    menubarStyleHelp: "막대 위의 세로 눈금은 주간 시간을 나타내요. 이 속도면 리셋 전에 다 쓸 것 같으면 막대가 빨강으로 바뀌어요.",
+    percentMode: "표시 기준",
+    used: "사용한 양",
+    remaining: "남은 양",
+    percentModeHelpRemaining: "숫자와 막대가 남은 양을 보여 주고, 눈금은 남은 시간이에요. 남은 양이 남은 시간보다 5%p 이상 적으면 빨강이에요.",
+    percentModeHelpUsed: "숫자와 막대가 사용한 양을 보여 주고, 눈금은 지난 시간이에요. 사용량이 지난 시간보다 5%p 이상 많으면 빨강이에요.",
+    settingsNote: "API 비용 연동은 다음 단계에서 추가돼요.",
     days: "{n}일",
     hours: "{n}시간",
+    hoursDecimal: "{n}시간",
     minutes: "{n}분",
   },
   en: {
+    accounts: "Accounts",
+    importTitle: "Import from another app",
+    importHelp: "Bring usage history from the original Claude Usage app into an account's graph. Pick which account each profile belongs to.",
+    chooseAccount: "Choose account",
+    importButton: "Import",
+    imported: "Imported {count}",
+    legacyRecords: "{weekly} weekly · {session} session",
+    addClaudeAccount: "Add Claude account",
+    addCodex: "Add Codex",
+    codexCli: "Codex CLI sign-in",
+    codexNeedsLogin: "Codex CLI sign-in required (run codex login)",
+    staleAsOf: "As of {time}",
+    loginWindowOpened: "A sign-in window opened. Once you sign in to claude.ai it closes by itself and your usage appears.",
+    googleLoginHint: "If Google sign-in is blocked, sign in with email instead.",
+    emptyHint: "Add a Claude account or Codex to see usage here.",
+    loading: "Loading…",
+    needsLogin: "Sign-in required",
+    challenge: "claude.ai needs a quick check",
+    signIn: "Sign in",
+    open: "Open",
+    notUsedYet: "Not used yet",
+    noUsageData: "No usage data",
+    staleSince: "Data from {time}",
+    notSignedIn: "Not signed in",
+    edit: "Edit",
+    save: "Save",
+    cancel: "Cancel",
+    remove: "Remove",
+    confirmRemove: "Click again to remove",
+    relogin: "Sign in again",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    name: "Name",
+    menubarLabel: "Menu bar label",
+    labelName: "Name",
+    labelNameHelp: "The name shows in the menu bar (first 8 characters)",
+    emoji: "Emoji",
+    dot: "Dot",
+    color: "Color",
     refresh: "Refresh",
     settings: "Settings",
     back: "Back",
@@ -57,6 +136,7 @@ const strings = {
     models: "Model limits",
     extraUsage: "Extra usage",
     recentTrend: "Last 7 days",
+    recentSpan: "Last {duration}",
     claudeCodeToday: "Claude Code today",
     tokens: "{count} tokens",
     apiThisMonth: "API this month",
@@ -70,19 +150,19 @@ const strings = {
     history: "History",
     quit: "Quit",
     comingLater: "Coming in a later milestone",
-    noAccounts: "No accounts yet",
     menubarStyle: "Menu bar style",
     bars: "Bars",
     numbers: "Numbers",
-    menubarStyleHelp:
-      "Bars show weekly usage; the tick shows how much of the week has passed. A bar turns red when usage runs 5 points ahead of the tick.",
-    percentMode: "Percentage",
+    menubarStyleHelp: "The tick on each bar marks the week's time. A bar turns red when you are on pace to run out before the reset.",
+    percentMode: "Show",
     used: "Used",
     remaining: "Remaining",
-    percentModeHelp: "Applies when numbers are shown. Bars always fill with usage.",
-    settingsNote: "Adding accounts and API keys comes in a later milestone.",
+    percentModeHelpRemaining: "Numbers and bars show what is left; the tick is the time left. Red when what is left trails the time left by 5 points.",
+    percentModeHelpUsed: "Numbers and bars show what is used; the tick is the time passed. Red when usage runs 5 points ahead of the time passed.",
+    settingsNote: "API cost comes in a later milestone.",
     days: "{n}d",
     hours: "{n}h",
+    hoursDecimal: "{n}h",
     minutes: "{n}m",
   },
 } as const;
@@ -113,15 +193,10 @@ export function formatResetTime(iso: string, now: number): string {
   return at.getTime() - now < 24 * 3_600_000 ? sameDayTime.format(at) : otherDayTime.format(at);
 }
 
-/** 남은 시간: "3일 2시간", "2시간 40분", "15분" */
-export function formatDuration(milliseconds: number): string {
-  const totalMinutes = Math.max(0, Math.round(milliseconds / 60_000));
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  if (days > 0) return [t("days", { n: days }), hours > 0 ? t("hours", { n: hours }) : ""].join(" ").trim();
-  if (hours > 0) return [t("hours", { n: hours }), minutes > 0 ? t("minutes", { n: minutes }) : ""].join(" ").trim();
-  return t("minutes", { n: minutes });
+/** 남은 시간을 시간 단위로, 분은 소수 한 자리로 (예: 2시간 40분 → "2.7시간") */
+export function formatHours(milliseconds: number): string {
+  const hours = Math.max(0, milliseconds) / 3_600_000;
+  return t("hoursDecimal", { n: hours.toFixed(1) });
 }
 
 export function formatPercent(value: number): string {
@@ -145,4 +220,17 @@ export function formatMoney(amount: number, currency: string): string {
 export function formatUpdated(iso: string, now: number): string {
   const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000);
   return minutes < 1 ? t("updatedJustNow") : t("updatedMinutesAgo", { minutes });
+}
+
+const clockTime = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" });
+/** 오래된 데이터 표시용 시각 (예: "오후 3:40") */
+export function formatClock(iso: string): string {
+  return clockTime.format(new Date(iso));
+}
+
+const shortDate = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+/** 기간 표시 (예: "9월 29일 ~ 11월 20일") */
+export function formatDateRange(from: string | null, to: string | null): string {
+  if (!from || !to) return "";
+  return `${shortDate.format(new Date(from))} ~ ${shortDate.format(new Date(to))}`;
 }

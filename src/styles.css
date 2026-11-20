@@ -202,19 +202,6 @@ html.preview .popover {
   font-size: 11px;
 }
 
-.label-alias {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--account-color) 20%, transparent);
-  color: var(--account-color);
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .label-emoji {
   width: 18px;
   font-size: 14px;
@@ -229,9 +216,13 @@ html.preview .popover {
 }
 
 .empty {
-  margin: 16px 0;
+  margin: 10px 0 12px;
   color: var(--text-secondary);
   text-align: center;
+}
+
+.accounts-compact .account-list:empty {
+  display: none;
 }
 
 /* ───────── 사용량 막대 ───────── */
@@ -396,7 +387,8 @@ html.preview .popover {
 
 .trend-label {
   flex: none;
-  width: 48px;
+  min-width: 48px;
+  white-space: nowrap;
   color: var(--text-tertiary);
   font-size: 11px;
 }
@@ -410,10 +402,13 @@ html.preview .popover {
 /* ───────── 아래쪽 요약 ───────── */
 
 .footer {
+  border-top: 1px solid var(--separator);
+}
+
+.summary {
   display: grid;
   gap: 5px;
-  padding-top: 9px;
-  border-top: 1px solid var(--separator);
+  padding: 9px 0 6px;
 }
 
 .summary-row {
@@ -465,8 +460,11 @@ html.preview .popover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 3px;
   padding-top: 6px;
+}
+
+/* 요약 줄이 있을 때만 그 아래에 구분선 */
+.summary + .footer-bar {
   border-top: 1px solid var(--separator);
 }
 
@@ -543,5 +541,274 @@ html.preview .popover {
 .settings-note {
   margin: 4px 0 2px;
   color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* ───────── 계정 상태 안내 ───────── */
+
+.status-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.status-line.attention {
+  color: var(--warn);
+}
+
+.status-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-button {
+  flex: none;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--hover);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.link-button:hover {
+  background: var(--pressed);
+}
+
+.card-note {
+  margin: 4px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.empty p {
+  margin: 8px 0 4px;
+}
+
+/* ───────── 설정: 계정 목록 ───────── */
+
+.account-list {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.account-item {
+  border-radius: 7px;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.account-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-name {
+  font-weight: 500;
+}
+
+.account-sub {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+}
+
+.icon-button.small {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+}
+
+.icon-button:disabled {
+  opacity: 0.3;
+}
+
+.icon-button:disabled:hover {
+  background: transparent;
+}
+
+.push-button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--segment-active);
+  box-shadow: 0 0 0 0.5px var(--separator), 0 1px 2px rgba(0, 0, 0, 0.1);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.push-button:active {
+  background: var(--pressed);
+}
+
+.push-button.wide {
+  width: 100%;
+  padding: 6px 0;
+}
+
+/* ───────── 설정: 계정 편집기 ───────── */
+
+.account-editor {
+  display: grid;
+  gap: 9px;
+  margin: 2px 0 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--hover);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.field-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.text-input {
+  width: 100%;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  outline: none;
+  background: var(--segment-active);
+  box-shadow: 0 0 0 0.5px var(--separator) inset;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.text-input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #0a84ff 55%, transparent);
+}
+
+.text-input.short {
+  width: 64px;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2) inset;
+}
+
+.swatch.active {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.text-button.danger {
+  color: var(--warn);
+}
+
+.text-button.danger.confirming {
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+}
+
+.add-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.add-buttons .push-button {
+  padding: 6px 0;
+}
+
+.push-button:disabled {
+  opacity: 0.45;
+}
+
+.error-text {
+  color: var(--warn);
+}
+
+.field-help {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* ───────── 설정: 다른 앱 기록 가져오기 ───────── */
+
+.setting-help.first {
+  margin: -2px 0 8px;
+}
+
+.import-row {
+  display: grid;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.import-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.select {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--segment-active);
+  box-shadow: 0 0 0 0.5px var(--separator) inset;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.import-result {
+  color: var(--text-secondary);
   font-size: 11px;
 }

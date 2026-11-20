@@ -10,33 +10,43 @@ interface FooterProps {
 
 /** 팝오버 아래쪽: Claude Code 오늘 사용량, API 비용, 서비스 상태, 갱신 시각 */
 export function Footer({ summary, updatedAt, now, onQuit }: FooterProps) {
+  const hasSummary =
+    summary.claudeCodeToday !== null || summary.apiMonthCostUsd !== null || summary.services.length > 0;
+
   return (
     <footer className="footer">
-      {summary.claudeCodeToday && (
-        <div className="summary-row">
-          <span className="summary-label">{t("claudeCodeToday")}</span>
-          <span className="summary-value">
-            {formatTokens(summary.claudeCodeToday.tokens)} · {formatUsd(summary.claudeCodeToday.costUsd)}
-          </span>
-        </div>
-      )}
-      {summary.apiMonthCostUsd !== null && (
-        <div className="summary-row">
-          <span className="summary-label">{t("apiThisMonth")}</span>
-          <span className="summary-value">{formatUsd(summary.apiMonthCostUsd)}</span>
-        </div>
-      )}
-      <div className="summary-row">
-        <span className="summary-label">{t("services")}</span>
-        <span className="services">
-          {summary.services.map((service) => (
-            <span className="service" key={service.name} title={t(service.state)}>
-              <span className={`status-dot ${service.state}`} />
-              {service.name}
+      {hasSummary && (
+        <div className="summary">
+        {summary.claudeCodeToday && (
+          <div className="summary-row">
+            <span className="summary-label">{t("claudeCodeToday")}</span>
+            <span className="summary-value">
+              {formatTokens(summary.claudeCodeToday.tokens)} · {formatUsd(summary.claudeCodeToday.costUsd)}
             </span>
-          ))}
-        </span>
-      </div>
+          </div>
+        )}
+        {summary.apiMonthCostUsd !== null && (
+          <div className="summary-row">
+            <span className="summary-label">{t("apiThisMonth")}</span>
+            <span className="summary-value">{formatUsd(summary.apiMonthCostUsd)}</span>
+          </div>
+        )}
+        {summary.services.length > 0 && (
+          <div className="summary-row">
+            <span className="summary-label">{t("services")}</span>
+            <span className="services">
+              {summary.services.map((service) => (
+                <span className="service" key={service.name} title={t(service.state)}>
+                  <span className={`status-dot ${service.state}`} />
+                  {service.name}
+                </span>
+              ))}
+            </span>
+          </div>
+        )}
+
+        </div>
+      )}
 
       <div className="footer-bar">
         <span className="updated">{formatUpdated(updatedAt, now)}</span>

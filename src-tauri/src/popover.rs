@@ -6,7 +6,9 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, Rect, WebviewWindow, Window, WindowEvent};
+use tauri::{
+    AppHandle, LogicalSize, Manager, PhysicalPosition, Rect, WebviewWindow, Window, WindowEvent,
+};
 
 pub const LABEL: &str = "popover";
 /// 팝오버 너비 (pt)
@@ -55,6 +57,26 @@ pub fn toggle(app: &AppHandle, tray_rect: Rect) {
     let _ = window.set_focus();
 }
 
+/// 팝오버를 메뉴바 아이콘 아래에 다시 연다. (로그인을 마친 뒤 결과를 보여 줄 때)
+pub fn show_again(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(LABEL) else {
+        return;
+    };
+    let Some(tray_rect) = current_tray_rect(app) else {
+        return;
+    };
+    place_below_tray(&window, tray_rect);
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// 메뉴바 아이콘의 지금 위치. 계정이 늘면 아이콘 폭이 바뀌므로 저장해 둔 값보다 이것을 먼저 쓴다.
+fn current_tray_rect(app: &AppHandle) -> Option<Rect> {
+    app.tray_by_id(crate::refresh::TRAY_ID)
+        .and_then(|tray| tray.rect().ok().flatten())
+        .or_else(|| *app.state::<PopoverState>().tray_rect.lock().unwrap())
+}
+
 pub fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(LABEL) {
         let _ = window.hide();
@@ -77,8 +99,7 @@ pub fn resize(app: &AppHandle, content_height: f64) {
     let height = content_height.clamp(120.0, max_height.max(120.0));
     let _ = window.set_size(LogicalSize::new(WIDTH, height));
 
-    let tray_rect = *app.state::<PopoverState>().tray_rect.lock().unwrap();
-    if let Some(tray_rect) = tray_rect {
+    if let Some(tray_rect) = current_tray_rect(app) {
         place_below_tray(&window, tray_rect);
     }
 }

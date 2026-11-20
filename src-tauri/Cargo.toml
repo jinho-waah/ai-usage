@@ -24,14 +24,25 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 날짜·시간 계산 (리셋 시각, 남은 시간)
 chrono = { version = "0.4", features = ["serde"] }
-# 1분마다 갱신하는 타이머
-tokio = { version = "1", features = ["time"] }
+# 1분마다 갱신하는 타이머, 웹뷰 결과를 기다리는 채널
+tokio = { version = "1", features = ["time", "sync"] }
+# 계정 ID (계정별 WebKit 저장소 이름으로도 쓴다)
+uuid = { version = "1", features = ["v4", "serde"] }
+# Codex 사용량 API 호출 (HTTPS)
+reqwest = { version = "0.12", features = ["json"] }
+# Codex 로그인 토큰(JWT)에서 계정 ID 를 꺼낼 때
+base64 = "0.22"
+# 사용량 기록 DB (SQLite 를 앱 안에 함께 빌드한다)
+rusqlite = { version = "0.32", features = ["bundled"] }
+# 원본 Claude Usage 앱의 설정 파일(plist)에서 프로필 이름을 읽을 때
+plist = "1"
 
-# macOS 전용: AppKit(메뉴바 아이콘 그리기)을 Rust에서 직접 부르기 위한 바인딩
+# macOS 전용: AppKit(메뉴바 아이콘 그리기)·WebKit(계정 웹뷰)을 Rust에서 직접 부르기 위한 바인딩
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
+objc2-web-kit = "0.3"
 block2 = "0.6"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

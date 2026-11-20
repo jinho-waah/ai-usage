@@ -2,22 +2,23 @@
 // Rust 쪽 구조체를 바꾸면 여기도 같이 바꿔야 한다.
 
 export type Provider = "claude" | "codex";
-export type LabelKind = "alias" | "emoji" | "dot";
+/** 메뉴바 라벨: 계정 이름 그대로 / 이모지 / 색 점 */
+export type LabelKind = "name" | "emoji" | "dot";
 
 export interface AccountLabel {
   kind: LabelKind;
-  /** 별칭이나 이모지. 색 점이면 빈 문자열 */
+  /** 이모지 라벨일 때의 이모지. 이름·색 점이면 빈 문자열 */
   text: string;
 }
 
 export interface UsageWindow {
   /** 사용한 비율 0~100 */
   usedPercent: number;
-  /** 리셋 시각 (ISO 8601, UTC) */
-  resetsAt: string;
+  /** 리셋 시각 (ISO 8601, UTC). 이번 창을 아직 안 썼으면 null */
+  resetsAt: string | null;
   windowSeconds: number;
-  /** 창이 시작된 뒤 지난 시간 비율 0~100 (시간 눈금 위치) */
-  elapsedPercent: number;
+  /** 창이 시작된 뒤 지난 시간 비율 0~100 (시간 눈금 위치). 리셋 시각을 모르면 null */
+  elapsedPercent: number | null;
   /** 사용량이 시간 진행보다 5%p 이상 앞섬 → 빨강 */
   aheadOfPace: boolean;
 }
@@ -51,6 +52,47 @@ export interface AccountUsage {
   models: ModelUsage[];
   extra: ExtraUsage | null;
   trend: TrendPoint[];
+  status: AccountStatus;
+  /** 마지막으로 사용량을 받아 온 시각. 아직 못 받았으면 null */
+  updatedAt: string | null;
+}
+
+/** 계정 상태: 정상, 불러오는 중, 로그인 필요, Cloudflare 확인 필요, 오류 */
+export type AccountStatus =
+  | { kind: "ok" }
+  | { kind: "loading" }
+  | { kind: "needsLogin" }
+  | { kind: "challenge" }
+  | { kind: "error"; message: string };
+
+/** 설정 화면에서 다루는 계정 정보 (Rust accounts.rs 의 Account) */
+export interface Account {
+  id: string;
+  provider: Provider;
+  name: string;
+  label: AccountLabel;
+  color: string;
+  orgId: string | null;
+  orgName: string | null;
+  plan: string | null;
+}
+
+/** 계정에서 사용자가 고칠 수 있는 항목 */
+export interface AccountEdit {
+  id: string;
+  name: string;
+  label: AccountLabel;
+  color: string;
+}
+
+/** 원본 Claude Usage 앱에서 가져올 수 있는 프로필 */
+export interface LegacyProfile {
+  id: string;
+  name: string;
+  weeklyCount: number;
+  sessionCount: number;
+  firstAt: string | null;
+  lastAt: string | null;
 }
 
 export type ServiceState = "operational" | "degraded" | "outage" | "unknown";

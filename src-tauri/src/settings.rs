@@ -23,10 +23,10 @@ pub enum MenubarStyle {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum PercentMode {
-    /// 사용한 % (기본)
-    #[default]
+    /// 사용한 양 (예: 58%)
     Used,
-    /// 남은 %
+    /// 남은 양 (기본). 막대도 남은 만큼 채우고, 눈금은 남은 시간을 가리킨다.
+    #[default]
     Remaining,
 }
 
@@ -75,6 +75,8 @@ mod tests {
         let parsed: Settings = serde_json::from_str(r#"{"percentMode":"remaining"}"#).unwrap();
         assert_eq!(parsed.menubar_style, MenubarStyle::Bars);
         assert_eq!(parsed.percent_mode, PercentMode::Remaining);
+        let empty: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty.percent_mode, PercentMode::Remaining, "기본은 남은 양");
     }
 
     #[test]
