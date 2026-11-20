@@ -23,12 +23,18 @@ function usageWindow(used: number, resetsInHours: number, windowSeconds: number)
   const resetsAt = now + resetsInHours * HOUR;
   const start = resetsAt - windowSeconds * 1000;
   const elapsedPercent = Math.min(100, Math.max(0, ((now - start) / (windowSeconds * 1000)) * 100));
+  // Rust(model.rs)와 같은 계산: 이 속도면 언제 다 쓰는지, 하루에 얼마씩 쓸 수 있는지
+  const runsOut = elapsedPercent >= 3 && used * 0.98 > elapsedPercent && used < 100;
+  const daysLeft = Math.max(1, (resetsInHours * HOUR) / (24 * HOUR));
   return {
     usedPercent: used,
     resetsAt: new Date(resetsAt).toISOString(),
     windowSeconds,
     elapsedPercent,
     aheadOfPace: used >= elapsedPercent + 5,
+    runsOutAt: runsOut ? new Date(start + ((now - start) * 100) / used).toISOString() : null,
+    dailyBudgetPercent: (100 - used) / daysLeft,
+    usedTodayPercent: windowSeconds === WEEK_SECONDS ? Math.round(used * 0.15) : null,
   };
 }
 
@@ -143,6 +149,9 @@ export function mockSnapshot(): Snapshot {
           reasoning: 0,
           today: 61_200_000,
           since: "2026-10-21",
+          apiCostTotalUsd: 1284,
+          apiCostMonthUsd: 912.5,
+          unpricedTokens: 0,
         },
         {
           provider: "codex",
@@ -154,6 +163,9 @@ export function mockSnapshot(): Snapshot {
           reasoning: 1_900_000,
           today: 9_800_000,
           since: "2026-11-10",
+          apiCostTotalUsd: 96.4,
+          apiCostMonthUsd: 96.4,
+          unpricedTokens: 0,
         },
       ],
       tokensScanning: false,
@@ -167,7 +179,7 @@ export function mockSnapshot(): Snapshot {
 }
 
 export function mockSettings(): Settings {
-  return { menubarStyle: "bars", percentMode: "remaining" };
+  return { menubarStyle: "bars", percentMode: "remaining", limitAlertPercent: 90 };
 }
 
 export function mockAccounts(): Account[] {

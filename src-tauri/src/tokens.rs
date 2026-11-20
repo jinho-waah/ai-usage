@@ -27,6 +27,8 @@ pub struct Tokens {
     pub input: u64,
     pub output: u64,
     pub cache_write: u64,
+    /// `cache_write` 중 1시간 캐시 몫 (나머지는 5분 캐시). 요금이 달라서 따로 센다.
+    pub cache_write_1h: u64,
     pub cache_read: u64,
     /// 추론 토큰 (Codex, 출력에 포함된 값이라 합계에 따로 더하지 않음)
     pub reasoning: u64,
@@ -215,10 +217,17 @@ fn claude_line(transaction: &Transaction, text: &str) -> Result<bool, String> {
     };
 
     let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    // 캐시 쓰기는 5분짜리와 1시간짜리 요금이 다르다. 나눠 적혀 있지 않은 예전 로그는 전부 1시간으로 본다
+    // (Claude Code 는 거의 항상 1시간 캐시를 쓴다: 2026-11 로그에서 98%).
+    let cache_write_1h = usage
+        .pointer("/cache_creation/ephemeral_1h_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| count("cache_creation_input_tokens"));
     let tokens = Tokens {
         input: count("input_tokens"),
         output: count("output_tokens"),
         cache_write: count("cache_creation_input_tokens"),
+        cache_write_1h,
         cache_read: count("cache_read_input_tokens"),
         reasoning: 0,
         total: count("input_tokens")
@@ -364,6 +373,7 @@ fn codex_line(
         input: delta[0].saturating_sub(delta[1]),
         cache_read: delta[1],
         cache_write: delta[2],
+        cache_write_1h: delta[2],
         output: delta[3],
         reasoning: delta[4],
         total: delta[5],
@@ -399,11 +409,13 @@ fn add_usage(
     transaction
         .execute(
             "INSERT INTO token_usage
-                 (provider, day, hour, model, project, session, input, output, cache_write, cache_read, reasoning, total)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 (provider, day, hour, model, project, session, input, output, cache_write, cache_read, reasoning, total, cache_write_1h)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT (provider, day, hour, model, project, session) DO UPDATE SET
                  input = input + excluded.input,
                  output = output + excluded.output,
+                 -- 예전에 만든 줄은 cache_write_1h 가 비어 있다 → 그때까지의 캐시 쓰기를 전부 1시간으로 보고 이어 더한다
+                 cache_write_1h = COALESCE(cache_write_1h, cache_write) + excluded.cache_write_1h,
                  cache_write = cache_write + excluded.cache_write,
                  cache_read = cache_read + excluded.cache_read,
                  reasoning = reasoning + excluded.reasoning,
@@ -420,7 +432,8 @@ fn add_usage(
                 tokens.cache_write as i64,
                 tokens.cache_read as i64,
                 tokens.reasoning as i64,
-                tokens.total as i64
+                tokens.total as i64,
+                tokens.cache_write_1h as i64
             ],
         )
         .map(|_| ())
@@ -576,6 +589,56 @@ mod tests {
             )
             .unwrap();
         assert_eq!(model, "gpt-6-astra");
+    }
+
+    #[test]
+    fn cache_writes_keep_the_one_hour_share() {
+        let dir = temp_dir("cache-split");
+        let file = dir.join("session.jsonl");
+        let line = |id: &str, usage: serde_json::Value| {
+            serde_json::json!({
+                "type": "assistant", "timestamp": "2026-11-20T10:00:00Z", "cwd": "/work/app",
+                "sessionId": "s1", "requestId": id,
+                "message": { "id": id, "model": "claude-opus-5-5", "usage": usage }
+            })
+            .to_string()
+        };
+        append(
+            &file,
+            &[
+                // 5분 100 + 1시간 900 으로 나눠 적힌 응답
+                line(
+                    "m1",
+                    serde_json::json!({
+                        "input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 1000,
+                        "cache_creation": { "ephemeral_5m_input_tokens": 100, "ephemeral_1h_input_tokens": 900 }
+                    }),
+                ),
+                // 나눔이 없는 예전 모양 → 전부 1시간으로 본다
+                line(
+                    "m2",
+                    serde_json::json!({
+                        "input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 50
+                    }),
+                ),
+            ],
+        );
+        let dirs = LogDirs {
+            claude: vec![dir.clone()],
+            codex: vec![],
+        };
+        let mut connection = Connection::open_in_memory().unwrap();
+        scan_with(&mut connection, &dirs).unwrap();
+        let (write, one_hour): (i64, i64) = connection
+            .query_row(
+                "SELECT SUM(cache_write), SUM(cache_write_1h) FROM token_usage",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((write, one_hour), (1050, 950));
     }
 
     #[test]

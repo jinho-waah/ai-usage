@@ -59,7 +59,18 @@ pub struct UsageWindow {
     pub elapsed_percent: Option<f64>,
     /// (계산값) 사용량이 시간 진행보다 `PACE_MARGIN_PERCENT` 이상 앞서는지. true 면 빨강.
     pub ahead_of_pace: bool,
+    /// (계산값) 이 주기의 지금까지 평균 속도로 가면 한도를 다 쓰는 시각. 리셋 전에 바닥날 때만 있다.
+    pub runs_out_at: Option<DateTime<Utc>>,
+    /// (계산값) 리셋까지 버티려면 하루에 쓸 수 있는 양 (%). 남은 양 ÷ 남은 일수 (하루가 안 남았으면 남은 양 전부).
+    pub daily_budget_percent: Option<f64>,
+    /// 오늘(내 시간대 자정 이후) 쓴 양 (%). 기록에서 계산해 따로 채운다. 모르면 `None`.
+    pub used_today_percent: Option<f64>,
 }
+
+/// 주기가 이만큼(%) 지나기 전에는 소진 시각을 예측하지 않는다. 초반에는 조금만 써도 예측이 크게 튄다.
+const MIN_ELAPSED_FOR_FORECAST: f64 = 3.0;
+/// 리셋 직전(창 길이의 이 비율 안)에 바닥나는 정도면 "리셋 전에 다 쓴다"고 하지 않는다. 주간이면 약 3.4시간.
+const RUN_OUT_MARGIN: f64 = 0.02;
 
 impl UsageWindow {
     /// 원본 값으로 만들고, 시간 진행·페이스는 `now` 기준으로 계산해 둔다.
@@ -77,6 +88,30 @@ impl UsageWindow {
             (elapsed_seconds / window_seconds as f64 * 100.0).clamp(0.0, 100.0)
         });
 
+        // 소진 예측: 지금까지 걸린 시간 × (100 / 지금 사용률) 이면 100% 에 닿는다.
+        // 그 시각이 리셋보다 앞일 때만(= 이 속도면 리셋 전에 바닥남) 알려 준다.
+        let runs_out_at = match (resets_at, elapsed_percent) {
+            (Some(resets_at), Some(elapsed))
+                if elapsed >= MIN_ELAPSED_FOR_FORECAST
+                    && used_percent * (1.0 - RUN_OUT_MARGIN) > elapsed
+                    && used_percent < 100.0 =>
+            {
+                let started_at = resets_at - Duration::seconds(window_seconds);
+                let elapsed_seconds = window_seconds as f64 * elapsed / 100.0;
+                let seconds_to_full = elapsed_seconds * 100.0 / used_percent;
+                Some(started_at + Duration::seconds(seconds_to_full as i64))
+            }
+            _ => None,
+        };
+        // 하루 몫: 남은 양을 남은 일수로 나눈다.
+        let daily_budget_percent = resets_at.and_then(|resets_at| {
+            let seconds_left = (resets_at - now).num_seconds() as f64;
+            (seconds_left > 0.0).then(|| {
+                let days_left = (seconds_left / 86_400.0).max(1.0);
+                (100.0 - used_percent) / days_left
+            })
+        });
+
         UsageWindow {
             used_percent,
             resets_at,
@@ -84,6 +119,9 @@ impl UsageWindow {
             elapsed_percent,
             ahead_of_pace: elapsed_percent
                 .is_some_and(|elapsed| used_percent >= elapsed + PACE_MARGIN_PERCENT),
+            runs_out_at,
+            daily_budget_percent,
+            used_today_percent: None,
         }
     }
 }
@@ -222,6 +260,11 @@ pub struct BrandTokens {
     pub today: u64,
     /// 기록이 시작된 날 ("YYYY-MM-DD")
     pub since: Option<String>,
+    /// API 가격으로 냈다면 들었을 금액 (추정, 달러): 누적과 이번 달. 가격을 아는 모델이 하나도 없으면 `None`.
+    pub api_cost_total_usd: Option<f64>,
+    pub api_cost_month_usd: Option<f64>,
+    /// 가격표에 없는 모델이라 금액에서 뺀 토큰 수
+    pub unpriced_tokens: u64,
 }
 
 /// 팝오버 아래쪽 요약.
@@ -247,6 +290,36 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forecast_gives_run_out_time_and_daily_budget() {
+        let now = Utc::now();
+        // 7일짜리 창이 정확히 절반(3.5일) 지났고 70% 사용 → 이 속도면 5일째에 100%
+        let resets_at = Some(now + Duration::seconds(302_400));
+        let fast = UsageWindow::new(70.0, resets_at, 604_800, now);
+        let runs_out = fast.runs_out_at.expect("리셋 전에 바닥남");
+        let started = now - Duration::seconds(302_400);
+        assert_eq!(
+            (runs_out - started).num_hours(),
+            120,
+            "3.5일 × 100/70 = 5일"
+        );
+        // 남은 30% 를 남은 3.5일로 나누면 하루 약 8.57%
+        assert!((fast.daily_budget_percent.unwrap() - 30.0 / 3.5).abs() < 0.01);
+
+        // 페이스보다 느리면 소진 예측이 없다
+        let calm = UsageWindow::new(40.0, resets_at, 604_800, now);
+        assert_eq!(calm.runs_out_at, None);
+        // 아주 살짝 앞서서 리셋 직전에나 바닥날 정도면 예측하지 않는다
+        let barely = UsageWindow::new(50.5, resets_at, 604_800, now);
+        assert_eq!(barely.runs_out_at, None);
+        // 주기 초반(3% 미만 경과)에는 예측하지 않는다
+        let early = UsageWindow::new(5.0, Some(now + Duration::seconds(600_000)), 604_800, now);
+        assert_eq!(early.runs_out_at, None);
+        // 하루가 안 남았으면 남은 양 전부가 하루 몫
+        let last_day = UsageWindow::new(80.0, Some(now + Duration::hours(6)), 604_800, now);
+        assert!((last_day.daily_budget_percent.unwrap() - 20.0).abs() < 0.01);
+    }
 
     #[test]
     fn elapsed_and_pace_are_computed_from_reset_time() {

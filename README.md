@@ -8,10 +8,11 @@ Rust([Tauri](https://tauri.app))와 React로 만듭니다.
 ## 할 수 있는 것
 
 - **메뉴바:** 계정마다 주간 한도를 막대(또는 숫자)로. 세로 눈금은 시간, 페이스보다 빨리 쓰면 빨강.
-- **팝오버:** 계정 카드(주간·5시간 한도, 모델별 한도, Extra usage, 이번 달 API 비용, 최근 추세),
-  하단에 Claude·Codex 누적 토큰과 서비스 상태.
+- **팝오버:** 계정 카드(주간·5시간 한도, 소진 예측과 하루 몫, 모델별 한도, Extra usage, 이번 달 API 비용, 최근 7일 그래프),
+  하단에 Claude·Codex 누적 토큰(API 가격으로 환산한 추정 금액 포함)과 서비스 상태.
 - **히스토리 창:** 계정별 주간·5시간 사용률 추이, 주간 주기 비교(이번 주기 vs 지난 주기), 표 보기.
-- **알림:** 로그인이 풀렸을 때, Claude·OpenAI 상태 페이지에 장애가 올라왔을 때만.
+- **알림:** 로그인이 풀렸을 때, Claude·OpenAI 상태 페이지에 장애가 올라왔을 때,
+  한도를 설정한 만큼 썼을 때와 그 한도가 리셋됐을 때(기본 10% 남음, 설정에서 바꾸거나 끔).
 - **로그인할 때 자동으로 열기** (설치한 앱에서, 처음 켤 때 켜짐. 설정에서 끌 수 있음)
 
 ## 계정 연결
@@ -108,6 +109,7 @@ src-tauri/              앱 본체 (Rust)
   src/history_view.rs   히스토리 창 데이터 (주기 나누기)
   src/tokens.rs         Claude Code·Codex 로그에서 누적 토큰 집계
   src/api_cost.rs       Admin API 로 이번 달 API 비용 (키는 키체인)
+  src/pricing.rs        모델별 API 가격표 (구독 사용량의 API 환산 금액 추정)
   src/services.rs       Claude·OpenAI 상태 페이지
   src/alerts.rs         알림 (로그인 만료, 서비스 장애)
   src/login_item.rs     로그인할 때 자동으로 열기

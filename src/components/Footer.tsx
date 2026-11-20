@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { openHistory } from "../api";
-import { formatCount, formatDay, formatTokens, formatUpdated, t } from "../i18n";
+import { formatApproxUsd, formatCount, formatDay, formatTokens, formatUpdated, t } from "../i18n";
 import type { BrandTokens, Summary } from "../types";
 import { ChevronIcon } from "./Icons";
 
@@ -60,14 +60,21 @@ function TokenRow({ brand }: { brand: BrandTokens }) {
   const [open, setOpen] = useState(false);
   const label = brand.provider === "claude" ? t("tokensClaude") : t("tokensCodex");
 
-  // 값이 있는 항목만 (입력·출력은 항상)
-  const details: [string, number][] = [
-    [t("tokenToday"), brand.today],
-    [t("tokenInput"), brand.input],
-    [t("tokenOutput"), brand.output],
-    ...(brand.reasoning > 0 ? [[t("tokenReasoning"), brand.reasoning] as [string, number]] : []),
-    ...(brand.cacheWrite > 0 ? [[t("tokenCacheWrite"), brand.cacheWrite] as [string, number]] : []),
-    ...(brand.cacheRead > 0 ? [[t("tokenCacheRead"), brand.cacheRead] as [string, number]] : []),
+  // 값이 있는 항목만 (입력·출력은 항상). [이름, 보여 줄 값]
+  const details: [string, string][] = [
+    [t("tokenToday"), formatCount(brand.today)],
+    [t("tokenInput"), formatCount(brand.input)],
+    [t("tokenOutput"), formatCount(brand.output)],
+    ...(brand.reasoning > 0 ? [[t("tokenReasoning"), formatCount(brand.reasoning)] as [string, string]] : []),
+    ...(brand.cacheWrite > 0 ? [[t("tokenCacheWrite"), formatCount(brand.cacheWrite)] as [string, string]] : []),
+    ...(brand.cacheRead > 0 ? [[t("tokenCacheRead"), formatCount(brand.cacheRead)] as [string, string]] : []),
+    // 구독 대신 API 가격으로 냈다면 (추정)
+    ...(brand.apiCostMonthUsd !== null
+      ? [[t("apiEquivMonth"), formatApproxUsd(brand.apiCostMonthUsd)] as [string, string]]
+      : []),
+    ...(brand.apiCostTotalUsd !== null
+      ? [[t("apiEquivTotal"), formatApproxUsd(brand.apiCostTotalUsd)] as [string, string]]
+      : []),
   ];
 
   return (
@@ -84,10 +91,14 @@ function TokenRow({ brand }: { brand: BrandTokens }) {
           {details.map(([name, value]) => (
             <div className="token-detail-row" key={name}>
               <span>{name}</span>
-              <span className="summary-value">{formatCount(value)}</span>
+              <span className="summary-value">{value}</span>
             </div>
           ))}
           {brand.since && <div className="summary-note">{t("tokensSince", { date: formatDay(brand.since) })}</div>}
+          {brand.apiCostTotalUsd !== null && <div className="summary-note">{t("apiEquivNote")}</div>}
+          {brand.unpricedTokens > 0 && (
+            <div className="summary-note">{t("apiEquivUnpriced", { count: formatCount(brand.unpricedTokens) })}</div>
+          )}
         </div>
       )}
     </div>

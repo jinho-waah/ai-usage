@@ -21,6 +21,12 @@ export interface UsageWindow {
   elapsedPercent: number | null;
   /** 사용량이 시간 진행보다 5%p 이상 앞섬 → 빨강 */
   aheadOfPace: boolean;
+  /** 이 속도면 한도를 다 쓰는 시각. 리셋 전에 바닥날 때만 있다 */
+  runsOutAt: string | null;
+  /** 리셋까지 버티려면 하루에 쓸 수 있는 양 (%) */
+  dailyBudgetPercent: number | null;
+  /** 오늘 쓴 양 (%). 주간 한도에만 있고, 모르면 null */
+  usedTodayPercent: number | null;
 }
 
 export interface ModelUsage {
@@ -124,6 +130,11 @@ export interface BrandTokens {
   today: number;
   /** 기록이 시작된 날 "YYYY-MM-DD" */
   since: string | null;
+  /** API 가격으로 냈다면 들었을 금액 (추정, 달러): 누적과 이번 달. 가격을 아는 모델이 없으면 null */
+  apiCostTotalUsd: number | null;
+  apiCostMonthUsd: number | null;
+  /** 가격표에 없는 모델이라 금액에서 뺀 토큰 수 */
+  unpricedTokens: number;
 }
 
 /** 이번 달 Claude API 비용 (Admin API) */
@@ -217,4 +228,6 @@ export type PercentMode = "used" | "remaining";
 export interface Settings {
   menubarStyle: MenubarStyle;
   percentMode: PercentMode;
+  /** 한도 알림: 주간·5시간 한도를 이만큼(%) 쓰면 알린다. 0 이면 끔 */
+  limitAlertPercent: number;
 }

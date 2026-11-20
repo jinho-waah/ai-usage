@@ -61,6 +61,22 @@ pub struct BrandTokenTotals {
     pub since: Option<String>,
 }
 
+/// 모델 하나의 토큰 합계 (API 환산 금액 계산용)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelTokenSums {
+    /// "claude" | "codex"
+    pub provider: String,
+    pub model: String,
+    /// 이번 달 몫이면 true, 그 전 몫이면 false (모델마다 두 줄까지 나온다)
+    pub this_month: bool,
+    pub input: u64,
+    pub output: u64,
+    pub cache_write_5m: u64,
+    pub cache_write_1h: u64,
+    pub cache_read: u64,
+    pub total: u64,
+}
+
 /// DB 표를 만든다. 사용률 기록(History)과 토큰 집계(tokens.rs)가 같은 파일을 쓰므로 한곳에서 정의한다.
 pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
     connection
@@ -93,6 +109,7 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
                  cache_read  INTEGER NOT NULL DEFAULT 0,
                  reasoning   INTEGER NOT NULL DEFAULT 0,  -- Codex 추론 토큰 (출력에 포함된 값)
                  total       INTEGER NOT NULL DEFAULT 0,  -- 캐시 포함 합계
+                 cache_write_1h INTEGER,                  -- cache_write 중 1시간 캐시 몫 (비어 있으면 모름)
                  PRIMARY KEY (provider, day, hour, model, project, session)
              );
              -- 이미 센 Claude 응답 (같은 응답을 두 번 세지 않게).
@@ -143,6 +160,16 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
         let _ = connection.execute_batch("VACUUM;");
     }
 
+    // 예전 DB 에는 1시간 캐시 몫 열이 없다 → 덧붙인다 (예전 줄은 비어 있고, 읽을 때 전부 1시간으로 본다)
+    if connection
+        .prepare("SELECT cache_write_1h FROM token_usage LIMIT 0")
+        .is_err()
+    {
+        connection
+            .execute_batch("ALTER TABLE token_usage ADD COLUMN cache_write_1h INTEGER;")
+            .map_err(|error| error.to_string())?;
+    }
+
     // 예전 DB 에는 리셋 시각 열이 없다 → 덧붙인다 (예전 기록은 비어 있음)
     if connection
         .prepare("SELECT resets_at FROM usage_samples LIMIT 0")
@@ -179,6 +206,42 @@ impl History {
         Ok(History {
             connection: Mutex::new(connection),
         })
+    }
+
+    /// 모델별 토큰 합계. `month_start`("YYYY-MM-01") 부터와 그 전을 나눠서 준다.
+    /// 캐시 쓰기는 5분·1시간으로 나누고, 나눠 적히지 않은 예전 줄은 전부 1시간으로 본다.
+    pub fn token_sums_by_model(&self, month_start: &str) -> Result<Vec<ModelTokenSums>, String> {
+        let connection = self.connection.lock().unwrap();
+        let mut statement = connection
+            .prepare(
+                "SELECT provider, model, day >= ?1 AS this_month,
+                        SUM(input), SUM(output),
+                        SUM(cache_write - COALESCE(cache_write_1h, cache_write)),
+                        SUM(COALESCE(cache_write_1h, cache_write)),
+                        SUM(cache_read), SUM(total)
+                 FROM token_usage GROUP BY provider, model, this_month",
+            )
+            .map_err(|error| error.to_string())?;
+        let count = |row: &rusqlite::Row, index: usize| -> rusqlite::Result<u64> {
+            Ok(row.get::<_, i64>(index)?.max(0) as u64)
+        };
+        let rows = statement
+            .query_map(params![month_start], |row| {
+                Ok(ModelTokenSums {
+                    provider: row.get(0)?,
+                    model: row.get(1)?,
+                    this_month: row.get(2)?,
+                    input: count(row, 3)?,
+                    output: count(row, 4)?,
+                    cache_write_5m: count(row, 5)?,
+                    cache_write_1h: count(row, 6)?,
+                    cache_read: count(row, 7)?,
+                    total: count(row, 8)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
     }
 
     /// 브랜드(Claude, Codex)별 누적 토큰. 토큰 집계(tokens.rs)가 채운 표에서 합계만 읽는다.
@@ -580,6 +643,40 @@ mod tests {
         assert_eq!(inserted, 0);
         // 두 번 불러도 다시 옮기지 않는다
         ensure_schema(&connection).unwrap();
+    }
+
+    #[test]
+    fn model_sums_split_cache_writes_and_months() {
+        let history = History::in_memory().unwrap();
+        history
+            .connection
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO token_usage (provider, day, hour, model, project, session, input, output, cache_write, cache_read, reasoning, total, cache_write_1h)
+                 VALUES ('claude', '2026-11-05', 10, 'claude-opus-5-5', '/w', 's1', 10, 20, 1000, 5000, 0, 6030, 900),
+                        ('claude', '2026-11-06', 11, 'claude-opus-5-5', '/w', 's2', 1, 2, 0, 0, 0, 3, 0),
+                        -- 지난달 줄: 1시간 몫을 모른다(NULL) → 전부 1시간으로 본다
+                        ('claude', '2026-10-20', 9, 'claude-opus-5-5', '/w', 's0', 5, 5, 500, 0, 0, 510, NULL);",
+            )
+            .unwrap();
+        let mut sums = history.token_sums_by_model("2026-11-01").unwrap();
+        sums.sort_by_key(|sums| sums.this_month);
+        assert_eq!(sums.len(), 2);
+        let (last_month, this_month) = (&sums[0], &sums[1]);
+        assert!(!last_month.this_month && this_month.this_month);
+        assert_eq!(
+            (last_month.cache_write_5m, last_month.cache_write_1h),
+            (0, 500)
+        );
+        assert_eq!(
+            (this_month.cache_write_5m, this_month.cache_write_1h),
+            (100, 900)
+        );
+        assert_eq!(
+            (this_month.input, this_month.output, this_month.cache_read),
+            (11, 22, 5000)
+        );
     }
 
     #[test]

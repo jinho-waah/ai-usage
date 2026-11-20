@@ -53,6 +53,20 @@ const strings = {
     resets: "리셋 {time}",
     left: "{duration} 남음",
     aheadOfPace: "빠르게 쓰는 중",
+    forecastRunsOut: "이 속도면 {time}쯤 다 써요",
+    forecastBudgetToday: "오늘 {today}% 씀 · 하루 {budget}%씩이면 리셋까지 가요",
+    forecastBudget: "하루 {budget}%씩이면 리셋까지 가요",
+    forecastSlowDown: "하루 {budget}%까지",
+    limitAlert: "한도 알림",
+    limitAlertOff: "끔",
+    limitAlertUsed: "{n}% 사용",
+    limitAlertLeft: "{n}% 남음",
+    limitAlertHelp: "주간·5시간 한도가 이만큼 되면 알려 줘요. 주기마다 한 번만 알리고, 그 한도가 리셋되면 다시 쓸 수 있다고 알려 줘요.",
+    apiEquivMonth: "API 환산 (이번 달)",
+    apiEquivTotal: "API 환산 (누적)",
+    approxUsd: "약 {amount}",
+    apiEquivNote: "구독 대신 API 가격으로 냈다면 들었을 금액의 추정이에요.",
+    apiEquivUnpriced: "가격을 모르는 모델의 {count} 토큰은 뺐어요.",
     models: "모델별 한도",
     extraUsage: "Extra usage",
     recentTrend: "최근 7일",
@@ -184,6 +198,20 @@ const strings = {
     resets: "Resets {time}",
     left: "{duration} left",
     aheadOfPace: "Ahead of pace",
+    forecastRunsOut: "At this pace it runs out around {time}",
+    forecastBudgetToday: "Used {today}% today · {budget}% a day lasts until reset",
+    forecastBudget: "{budget}% a day lasts until reset",
+    forecastSlowDown: "up to {budget}% a day",
+    limitAlert: "Limit alerts",
+    limitAlertOff: "Off",
+    limitAlertUsed: "{n}% used",
+    limitAlertLeft: "{n}% left",
+    limitAlertHelp: "Notifies once per cycle when a weekly or 5-hour limit gets here, and again when that limit resets.",
+    apiEquivMonth: "API equivalent (this month)",
+    apiEquivTotal: "API equivalent (all time)",
+    approxUsd: "about {amount}",
+    apiEquivNote: "An estimate of what this usage would have cost at API prices instead of a subscription.",
+    apiEquivUnpriced: "{count} tokens from models without a known price are left out.",
     models: "Model limits",
     extraUsage: "Extra usage",
     recentTrend: "Last 7 days",
@@ -324,6 +352,18 @@ export function formatCount(count: number): string {
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export function formatUsd(amount: number): string {
   return usd.format(amount);
+}
+
+const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+/** 어림 금액 (예: "약 $1,284") */
+export function formatApproxUsd(amount: number): string {
+  return t("approxUsd", { amount: usdWhole.format(amount) });
+}
+
+/** 퍼센트 몫: 10 미만은 소수 한 자리까지 (예: 8.6), 그 이상은 정수 */
+export function formatShare(percent: number): string {
+  if (percent >= 10) return String(Math.round(percent));
+  return String(Math.round(percent * 10) / 10);
 }
 
 export function formatMoney(amount: number, currency: string): string {

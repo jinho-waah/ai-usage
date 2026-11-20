@@ -7,6 +7,7 @@ import {
   formatMoney,
   formatPercent,
   formatResetTime,
+  formatShare,
   formatUsd,
   t,
 } from "../i18n";
@@ -61,6 +62,7 @@ export function AccountCard({ account, percentMode, now, onSignIn }: AccountCard
           window={account.weekly}
           value={shown(account.weekly.usedPercent)}
           marker={marker(account.weekly.elapsedPercent)}
+          weekly
           now={now}
         />
       )}
@@ -217,6 +219,7 @@ function UsageRow({
   window,
   value,
   marker,
+  weekly = false,
   now,
 }: {
   title: string;
@@ -225,6 +228,8 @@ function UsageRow({
   value: number;
   /** 시간 눈금 위치 (지난 시간 또는 남은 시간). 없으면 눈금 없음 */
   marker: number | undefined;
+  /** 주간 한도인지 (하루 몫 예측은 주간에만 보여 준다) */
+  weekly?: boolean;
   now: number;
 }) {
   return (
@@ -243,8 +248,39 @@ function UsageRow({
         ) : (
           t("notUsedYet")
         )}
-        {window.aheadOfPace && <span className="warn-text"> · {t("aheadOfPace")}</span>}
+        {/* 주기 초반이라 아직 예측을 못 할 때만 짧게 알린다 (예측이 있으면 아래 줄이 대신한다) */}
+        {window.aheadOfPace && !window.runsOutAt && window.usedPercent < 100 && (
+          <span className="warn-text"> · {t("aheadOfPace")}</span>
+        )}
       </div>
+      <Forecast window={window} weekly={weekly} now={now} />
+    </div>
+  );
+}
+
+/**
+ * 한도 아래의 예측 한 줄.
+ * - 이 속도면 리셋 전에 바닥날 때: 언제쯤 다 쓰는지 (주간이면 하루 몫도)
+ * - 그렇지 않은 주간 한도: 오늘 쓴 양과, 리셋까지 버티는 하루 몫
+ */
+function Forecast({ window, weekly, now }: { window: UsageWindow; weekly: boolean; now: number }) {
+  if (window.usedPercent >= 100) return null;
+  const budget = window.dailyBudgetPercent;
+
+  if (window.runsOutAt) {
+    return (
+      <div className={`usage-forecast${window.aheadOfPace ? " warn-text" : ""}`}>
+        {t("forecastRunsOut", { time: formatResetTime(window.runsOutAt, now) })}
+        {weekly && budget !== null && ` · ${t("forecastSlowDown", { budget: formatShare(budget) })}`}
+      </div>
+    );
+  }
+  if (!weekly || budget === null) return null;
+  return (
+    <div className="usage-forecast">
+      {window.usedTodayPercent !== null
+        ? t("forecastBudgetToday", { today: formatShare(window.usedTodayPercent), budget: formatShare(budget) })
+        : t("forecastBudget", { budget: formatShare(budget) })}
     </div>
   );
 }

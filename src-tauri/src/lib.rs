@@ -30,6 +30,7 @@ mod menubar;
 mod mock;
 mod model;
 mod popover;
+mod pricing;
 mod refresh;
 mod services;
 mod settings;
@@ -688,6 +689,7 @@ pub fn dev_render_menubar_previews(dir: &std::path::Path) -> Result<Vec<PathBuf>
         let settings = Settings {
             menubar_style: style,
             percent_mode,
+            ..Settings::default()
         };
         let model = MenubarModel::from_snapshot(&snapshot, &settings);
         for (mode, dark) in [("light", false), ("dark", true)] {

@@ -933,3 +933,14 @@ html.preview .popover {
 .switch:disabled {
   opacity: 0.5;
 }
+
+/* 한도 아래의 예측 한 줄 (리셋 줄과 같은 들여쓰기) */
+.usage-forecast {
+  margin: 1px 0 0 38px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.usage-forecast.warn-text {
+  color: var(--warn);
+}

@@ -32,6 +32,7 @@ pub async fn refresh_all(app: &AppHandle) -> Snapshot {
         }
         record_history(&state);
         crate::alerts::check_logins(app);
+        crate::alerts::check_limits(app);
     }
     publish(app)
 }
@@ -72,6 +73,8 @@ pub struct CycleTrend {
     /// 가로축 시작과 끝 (최근 7일)
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
+    /// 오늘(내 시간대 자정 이후) 쓴 주간 한도 (%). 주간 한도가 없거나 기록이 없으면 `None`.
+    pub today_percent: Option<f64>,
 }
 
 /// 팝오버 미니 그래프: 최근 7일 동안 쓴 양(누적). 리셋 때 0% 로 떨어졌다가 다시 쌓이는 모양이 보인다.
@@ -108,14 +111,60 @@ fn trends(
                     now,
                 )
                 .unwrap_or_default();
+            let today_percent = match (window, live, local_midnight(now)) {
+                (WindowKind::Weekly, Some(live), Some(midnight)) => {
+                    used_since(&samples, midnight, live.percent)
+                }
+                _ => None,
+            };
             let trend = CycleTrend {
                 points: recent_points(&samples, window, live, from, now),
                 start: Some(from),
                 end: Some(now),
+                today_percent,
             };
             (account.id.clone(), trend)
         })
         .collect()
+}
+
+/// 내 시간대의 오늘 자정 (UTC 로)
+fn local_midnight(now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    now.with_timezone(&chrono::Local)
+        .date_naive()
+        .and_hms_opt(0, 0, 0)?
+        .and_local_timezone(chrono::Local)
+        .earliest()
+        .map(|midnight| midnight.with_timezone(&Utc))
+}
+
+/// `since` 이후에 쓴 양 (%). 기록에서 오른 만큼을 더한다.
+/// 값이 떨어지면 리셋된 것이므로, 그 뒤 값은 새 주기에서 쓴 양으로 더한다.
+/// `since` 앞의 기록이 없으면 그 뒤 첫 기록을 출발점으로 삼는다 (그 전에 쓴 양은 모른다).
+pub fn used_since(
+    samples: &[crate::history::Sample],
+    since: DateTime<Utc>,
+    current_percent: f64,
+) -> Option<f64> {
+    let before = samples.iter().rfind(|sample| sample.at < since);
+    let mut after = samples
+        .iter()
+        .filter(|sample| sample.at >= since)
+        .map(|sample| sample.used_percent);
+    let mut previous = match before {
+        Some(sample) => sample.used_percent,
+        None => after.next()?,
+    };
+    let mut total = 0.0;
+    for value in after.chain(std::iter::once(current_percent)) {
+        total += if value >= previous {
+            value - previous
+        } else {
+            value
+        };
+        previous = value;
+    }
+    Some(total)
 }
 
 /// 최근 기간(`from` ~ 지금)의 그래프 점.
@@ -277,7 +326,12 @@ pub fn build_snapshot(
                 color: account.color.clone(),
                 plan: data.plan.clone().or_else(|| account.plan.clone()),
                 weekly: usage.weekly.map(|window| {
-                    UsageWindow::new(window.percent, window.resets_at, WEEK_SECONDS, now)
+                    let mut weekly =
+                        UsageWindow::new(window.percent, window.resets_at, WEEK_SECONDS, now);
+                    weekly.used_today_percent = trends
+                        .get(&account.id)
+                        .and_then(|trend| trend.today_percent);
+                    weekly
                 }),
                 session: usage.session.map(|window| {
                     UsageWindow::new(window.percent, window.resets_at, SESSION_SECONDS, now)
@@ -344,17 +398,24 @@ pub async fn refresh_tokens(app: &AppHandle, min_gap: std::time::Duration) {
     }
     *last_scan = Some(std::time::Instant::now());
 
-    let totals = state
+    let local_now = chrono::Local::now();
+    let (totals, model_sums) = state
         .history
         .as_ref()
-        .and_then(|history| {
-            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-            history.token_totals(&today).ok()
+        .map(|history| {
+            let today = local_now.format("%Y-%m-%d").to_string();
+            let month_start = local_now.format("%Y-%m-01").to_string();
+            (
+                history.token_totals(&today).unwrap_or_default(),
+                history
+                    .token_sums_by_model(&month_start)
+                    .unwrap_or_default(),
+            )
         })
         .unwrap_or_default();
     {
         let mut summary = state.summary.lock().unwrap();
-        summary.tokens = brand_tokens(totals);
+        summary.tokens = brand_tokens(totals, &model_sums);
         summary.tokens_scanning = false;
     }
     publish(app);
@@ -426,7 +487,13 @@ pub async fn refresh_account_api_cost(state: &AppState, account_id: &str, key: &
 }
 
 /// DB 합계를 화면용으로 바꾼다. Claude 먼저, 그다음 Codex.
-fn brand_tokens(totals: Vec<crate::history::BrandTokenTotals>) -> Vec<BrandTokens> {
+/// 모델별 합계에 가격표를 곱해 "API 로 냈다면" 금액도 붙인다.
+pub fn brand_tokens(
+    totals: Vec<crate::history::BrandTokenTotals>,
+    model_sums: &[crate::history::ModelTokenSums],
+) -> Vec<BrandTokens> {
+    use crate::pricing::{self, TokenCounts};
+
     let mut brands: Vec<BrandTokens> = totals
         .into_iter()
         .filter_map(|total| {
@@ -435,7 +502,39 @@ fn brand_tokens(totals: Vec<crate::history::BrandTokenTotals>) -> Vec<BrandToken
                 "codex" => Provider::Codex,
                 _ => return None,
             };
+            // 이 브랜드의 모델들에 가격을 매긴다. 가격표에 없는 모델은 빼고 토큰 수만 따로 센다.
+            let mut cost_total = 0.0;
+            let mut cost_month = 0.0;
+            let mut priced_any = false;
+            let mut unpriced_tokens = 0;
+            for sums in model_sums
+                .iter()
+                .filter(|sums| sums.provider == total.provider)
+            {
+                let Some(price) = pricing::price_for(&sums.model) else {
+                    unpriced_tokens += sums.total;
+                    continue;
+                };
+                let cost = pricing::cost_usd(
+                    price,
+                    &TokenCounts {
+                        input: sums.input,
+                        output: sums.output,
+                        cache_write_5m: sums.cache_write_5m,
+                        cache_write_1h: sums.cache_write_1h,
+                        cache_read: sums.cache_read,
+                    },
+                );
+                priced_any = true;
+                cost_total += cost;
+                if sums.this_month {
+                    cost_month += cost;
+                }
+            }
             Some(BrandTokens {
+                api_cost_total_usd: priced_any.then_some(cost_total),
+                api_cost_month_usd: priced_any.then_some(cost_month),
+                unpriced_tokens,
                 provider,
                 total: total.total,
                 input: total.input,
@@ -531,6 +630,65 @@ mod tests {
         assert_eq!(values, vec![70.0, 98.0, 0.0, 20.0, 35.0, 41.0]);
         assert_eq!(points[2].at, reset);
         assert_eq!(points.last().unwrap().at, now);
+    }
+
+    #[test]
+    fn used_today_adds_increases_and_handles_a_reset() {
+        use crate::history::Sample;
+        let now = Utc::now();
+        let midnight = now - Duration::hours(10);
+        let sample = |hours_ago: i64, percent: f64| Sample {
+            at: now - Duration::hours(hours_ago),
+            used_percent: percent,
+            resets_at: None,
+        };
+        // 자정 전 90% → 오늘 95% 까지 쓰고(+5), 리셋 뒤 8% 까지 쓰고(+8), 지금 12% (+4)
+        let samples = [sample(12, 90.0), sample(8, 95.0), sample(5, 8.0)];
+        assert_eq!(used_since(&samples, midnight, 12.0), Some(17.0));
+        // 자정 전 기록이 없으면 오늘 첫 기록부터 센다
+        let samples = [sample(8, 30.0), sample(2, 36.0)];
+        assert_eq!(used_since(&samples, midnight, 36.0), Some(6.0));
+        // 기록이 하나도 없으면 모른다
+        assert_eq!(used_since(&[], midnight, 50.0), None);
+    }
+
+    #[test]
+    fn api_equivalent_cost_prices_known_models_and_counts_the_rest() {
+        use crate::history::{BrandTokenTotals, ModelTokenSums};
+        let totals = vec![BrandTokenTotals {
+            provider: "claude".into(),
+            input: 0,
+            output: 3_000_000,
+            cache_write: 0,
+            cache_read: 0,
+            reasoning: 0,
+            total: 3_000_500,
+            today: 0,
+            since: None,
+        }];
+        let sums = |model: &str, this_month: bool, output: u64, total: u64| ModelTokenSums {
+            provider: "claude".into(),
+            model: model.into(),
+            this_month,
+            input: 0,
+            output,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            cache_read: 0,
+            total,
+        };
+        let brands = brand_tokens(
+            totals,
+            &[
+                sums("claude-opus-5-5", true, 1_000_000, 1_000_000), // 이번 달 $20
+                sums("claude-opus-5-5", false, 2_000_000, 2_000_000), // 지난달 $40
+                sums("some-new-model", true, 500, 500),              // 가격 모름
+            ],
+        );
+        assert_eq!(brands.len(), 1);
+        assert_eq!(brands[0].api_cost_month_usd, Some(20.0));
+        assert_eq!(brands[0].api_cost_total_usd, Some(60.0));
+        assert_eq!(brands[0].unpriced_tokens, 500);
     }
 
     #[test]

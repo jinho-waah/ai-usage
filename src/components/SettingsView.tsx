@@ -72,6 +72,25 @@ export function SettingsView({ settings, accounts, onChange, onBack }: SettingsV
         </p>
       </section>
 
+      <section className="setting">
+        <div className="setting-title">{t("limitAlert")}</div>
+        <Segmented
+          value={String(settings.limitAlertPercent)}
+          options={[
+            ["0", t("limitAlertOff")],
+            ...[80, 90, 95].map((percent): [string, string] => [
+              String(percent),
+              // 표시 기준에 맞춰 적는다: 남은 양 기준이면 "10% 남음", 사용한 양 기준이면 "90% 사용"
+              settings.percentMode === "remaining"
+                ? t("limitAlertLeft", { n: 100 - percent })
+                : t("limitAlertUsed", { n: percent }),
+            ]),
+          ]}
+          onChange={(value) => onChange({ ...settings, limitAlertPercent: Number(value) })}
+        />
+        <p className="setting-help">{t("limitAlertHelp")}</p>
+      </section>
+
       <StartupSection />
 
       <LegacyImportSection accounts={accounts} />

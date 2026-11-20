@@ -30,13 +30,28 @@ pub enum PercentMode {
     Remaining,
 }
 
+/// 한도 알림 기본값: 90% 를 쓰면(10% 남으면) 알린다
+pub const DEFAULT_LIMIT_ALERT_PERCENT: u8 = 90;
+
 /// `#[serde(default)]`: 파일에 없는 항목은 기본값으로 채운다.
 /// 나중에 설정 항목이 늘어나도 예전 설정 파일을 그대로 읽을 수 있다.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub menubar_style: MenubarStyle,
     pub percent_mode: PercentMode,
+    /// 한도 알림: 주간·5시간 한도를 이만큼(%) 쓰면 알린다. 0 이면 끔.
+    pub limit_alert_percent: u8,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            menubar_style: MenubarStyle::default(),
+            percent_mode: PercentMode::default(),
+            limit_alert_percent: DEFAULT_LIMIT_ALERT_PERCENT,
+        }
+    }
 }
 
 impl PercentMode {
