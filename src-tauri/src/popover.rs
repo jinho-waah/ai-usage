@@ -6,9 +6,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{
-    AppHandle, LogicalSize, Manager, PhysicalPosition, Rect, WebviewWindow, Window, WindowEvent,
-};
+use tauri::{AppHandle, Manager, PhysicalPosition, Rect, WebviewWindow, Window, WindowEvent};
 
 pub const LABEL: &str = "popover";
 /// 팝오버 너비 (pt)
@@ -103,11 +101,46 @@ pub fn resize(app: &AppHandle, content_height: f64) {
         .map(|monitor| monitor.size().height as f64 / monitor.scale_factor() - 80.0)
         .unwrap_or(800.0);
     let height = content_height.clamp(120.0, max_height.max(120.0));
-    let _ = window.set_size(LogicalSize::new(WIDTH, height));
 
-    if let Some(tray_rect) = current_tray_rect(app) {
-        place_below_tray(&window, tray_rect);
+    // macOS: 크기만 바꾸면 창이 아래 모서리를 기준으로 위로 늘어났다가, 위치를 다시 맞출 때 아래로 내려와
+    // 화면이 두 번 튄다(모델별 한도를 펼칠 때 깨져 보이던 원인). 위쪽 모서리를 고정한 채 크기와 위치를 한 번에 바꾼다.
+    #[cfg(target_os = "macos")]
+    {
+        let target = window.clone();
+        let _ = window.run_on_main_thread(move || set_height_keeping_top(&target, height));
     }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window.set_size(tauri::LogicalSize::new(WIDTH, height));
+        if let Some(tray_rect) = current_tray_rect(app) {
+            place_below_tray(&window, tray_rect);
+        }
+    }
+}
+
+/// 창 위쪽 모서리를 그대로 두고 높이만 바꾼다 (한 번에, 메인 스레드에서).
+#[cfg(target_os = "macos")]
+fn set_height_keeping_top(window: &WebviewWindow, height: f64) {
+    use objc2_app_kit::NSWindow;
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    let Ok(pointer) = window.ns_window() else {
+        return;
+    };
+    // SAFETY: Tauri 가 돌려준 이 창의 NSWindow 이고, run_on_main_thread 안이라 메인 스레드다.
+    let ns_window: &NSWindow = unsafe { &*pointer.cast::<NSWindow>() };
+    let frame = ns_window.frame();
+    if (frame.size.height - height).abs() < 0.5 && (frame.size.width - WIDTH).abs() < 0.5 {
+        return;
+    }
+    // macOS 좌표는 아래에서 위로 올라간다: 위쪽 모서리 = origin.y + height
+    let top = frame.origin.y + frame.size.height;
+    let next = NSRect::new(
+        NSPoint::new(frame.origin.x, top - height),
+        NSSize::new(WIDTH, height),
+    );
+    ns_window.setFrame_display(next, true);
 }
 
 /// 메뉴바 아이콘 바로 아래 가운데에 창을 놓는다. 화면 밖으로 나가지 않게 맞춘다.
