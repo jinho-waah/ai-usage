@@ -55,11 +55,9 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             },
             color: "#D97757".into(),
             plan: Some("Ultra".into()),
-            trend: cycle_trend(&personal_weekly, now),
-            trend_start: personal_weekly
-                .resets_at
-                .map(|end| end - Duration::seconds(personal_weekly.window_seconds)),
-            trend_end: personal_weekly.resets_at,
+            trend: recent_trend(&personal_weekly, now, 72.0),
+            trend_start: Some(now - Duration::days(7)),
+            trend_end: Some(now),
             weekly: Some(personal_weekly),
             session: None,
             models: vec![
@@ -94,11 +92,9 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             },
             color: "#6A9BCC".into(),
             plan: Some("Pro".into()),
-            trend: cycle_trend(&work_weekly, now),
-            trend_start: work_weekly
-                .resets_at
-                .map(|end| end - Duration::seconds(work_weekly.window_seconds)),
-            trend_end: work_weekly.resets_at,
+            trend: recent_trend(&work_weekly, now, 64.0),
+            trend_start: Some(now - Duration::days(7)),
+            trend_end: Some(now),
             weekly: Some(work_weekly),
             session: Some(work_session),
             models: vec![],
@@ -117,11 +113,9 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             },
             color: "#10A37F".into(),
             plan: Some("Pro".into()),
-            trend: cycle_trend(&codex_weekly, now),
-            trend_start: codex_weekly
-                .resets_at
-                .map(|end| end - Duration::seconds(codex_weekly.window_seconds)),
-            trend_end: codex_weekly.resets_at,
+            trend: recent_trend(&codex_weekly, now, 80.0),
+            trend_start: Some(now - Duration::days(7)),
+            trend_end: Some(now),
             weekly: Some(codex_weekly),
             session: None,
             models: vec![],
@@ -175,13 +169,11 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
     }
 }
 
-/// 이번 주기 시작부터 지금까지 한 시간 간격의 누적 사용률을 만든다. 끝은 지금 사용률.
-fn cycle_trend(window: &UsageWindow, now: DateTime<Utc>) -> Vec<TrendPoint> {
+/// 최근 7일 동안 한 시간 간격의 쓴 양을 만든다.
+/// 지난 주기는 `previous_end` % 까지 쌓이고, 리셋 때 0% 로 떨어진 뒤 지금 사용률까지 다시 쌓인다.
+fn recent_trend(window: &UsageWindow, now: DateTime<Utc>, previous_end: f64) -> Vec<TrendPoint> {
     let cycle_start = window.resets_at.unwrap_or(now) - Duration::seconds(window.window_seconds);
-    let hours: Vec<DateTime<Utc>> = (0..)
-        .map(|i| cycle_start + Duration::hours(i))
-        .take_while(|t| *t <= now)
-        .collect();
+    let week_ago = now - Duration::days(7);
 
     // 시간대별 활동량: 한국 시간 새벽에는 적게, 저녁에는 많이 쓴다고 가정
     let activity = |t: &DateTime<Utc>| {
@@ -194,18 +186,34 @@ fn cycle_trend(window: &UsageWindow, now: DateTime<Utc>) -> Vec<TrendPoint> {
             1.0
         }
     };
-    let total: f64 = hours.iter().map(activity).sum();
+    let hours: Vec<DateTime<Utc>> = (0..=168).map(|i| week_ago + Duration::hours(i)).collect();
+    let previous: Vec<&DateTime<Utc>> = hours.iter().filter(|t| **t < cycle_start).collect();
+    let current: Vec<&DateTime<Utc>> = hours.iter().filter(|t| **t >= cycle_start).collect();
+    let previous_total: f64 = previous.iter().map(|t| activity(t)).sum();
+    let current_total: f64 = current.iter().map(|t| activity(t)).sum();
+
+    let mut points = Vec::with_capacity(hours.len() + 2);
+    // 지난 주기: 7일 창 안에서는 끝값의 절반쯤에서 시작해 끝값까지 쌓인다
     let mut sum = 0.0;
-    let mut points: Vec<TrendPoint> = hours
-        .iter()
-        .map(|t| {
-            sum += activity(t);
-            TrendPoint {
-                at: *t,
-                percent: window.used_percent * sum / total.max(f64::EPSILON),
-            }
-        })
-        .collect();
+    for t in previous {
+        sum += activity(t);
+        let percent = previous_end * (0.5 + 0.5 * sum / previous_total.max(f64::EPSILON));
+        points.push(TrendPoint { at: *t, percent });
+    }
+    if cycle_start > week_ago {
+        points.push(TrendPoint {
+            at: cycle_start,
+            percent: 0.0,
+        });
+    }
+    sum = 0.0;
+    for t in current {
+        sum += activity(t);
+        points.push(TrendPoint {
+            at: *t,
+            percent: window.used_percent * sum / current_total.max(f64::EPSILON),
+        });
+    }
     points.push(TrendPoint {
         at: now,
         percent: window.used_percent,

@@ -28,8 +28,8 @@ interface AccountCardProps {
 /** 팝오버의 계정 카드 하나 */
 export function AccountCard({ account, percentMode, now, onSignIn }: AccountCardProps) {
   const remaining = percentMode === "remaining";
-  // 작은 그래프 가로축: 이번 주기 시작 ~ 리셋 시각 (모르면 최근 기록 기간)
-  const cycleDomain: [number, number] | undefined =
+  // 작은 그래프 가로축: 최근 7일 (모든 계정이 같은 시간축)
+  const trendDomain: [number, number] | undefined =
     account.trendStart && account.trendEnd
       ? [new Date(account.trendStart).getTime(), new Date(account.trendEnd).getTime()]
       : undefined;
@@ -123,10 +123,11 @@ export function AccountCard({ account, percentMode, now, onSignIn }: AccountCard
         </div>
       )}
 
-      {(cycleDomain ? account.trend.length > 0 : account.trend.length > 1) && (
+      {/* 그래프는 표시 기준과 상관없이 쓴 양(누적): 리셋 때 0% 로 떨어졌다 다시 쌓이는 모양 */}
+      {(trendDomain ? account.trend.length > 0 : account.trend.length > 1) && (
         <div className="trend">
-          <span className="trend-label">{cycleDomain ? t("thisCycle") : trendLabel(account.trend)}</span>
-          <Sparkline points={account.trend} color={account.color} flip={remaining} domain={cycleDomain} />
+          <span className="trend-label">{trendDomain ? t("recentTrend") : trendLabel(account.trend)}</span>
+          <Sparkline points={account.trend} color={account.color} domain={trendDomain} />
         </div>
       )}
     </section>

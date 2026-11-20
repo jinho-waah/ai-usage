@@ -53,9 +53,9 @@ export interface AccountUsage {
   extra: ExtraUsage | null;
   /** 이번 달 Claude API 비용 (이 계정에 Admin API 키가 있을 때만) */
   apiCost: MonthCost | null;
-  /** 이번 주기(리셋까지)의 누적 사용률 */
+  /** 최근 7일 동안 쓴 양(누적). 리셋 때 0% 로 떨어진다 */
   trend: TrendPoint[];
-  /** 그래프 가로축: 이번 주기 시작 ~ 리셋 시각. 모르면 null (그때 그래프는 최근 7일) */
+  /** 그래프 가로축: 최근 7일의 시작과 끝(지금) */
   trendStart: string | null;
   trendEnd: string | null;
   status: AccountStatus;

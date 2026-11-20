@@ -460,7 +460,7 @@ pub fn weekly_series(
 }
 
 /// 기간으로 자른다: 기간 시작 직전 값에서 출발하고, 마지막 값을 지금까지 잇는다.
-fn clip(points: Vec<TrendPoint>, from: DateTime<Utc>, now: DateTime<Utc>) -> Vec<TrendPoint> {
+pub fn clip(points: Vec<TrendPoint>, from: DateTime<Utc>, now: DateTime<Utc>) -> Vec<TrendPoint> {
     let mut clipped = Vec::new();
     if let Some(before) = points.iter().rfind(|point| point.at < from) {
         clipped.push(TrendPoint {

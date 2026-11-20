@@ -9,10 +9,8 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
-
-use crate::model::TrendPoint;
 
 /// 이 정도보다 작게 바뀐 값은 같은 값으로 본다 (%)
 const SAME_VALUE_TOLERANCE: f64 = 0.05;
@@ -343,68 +341,6 @@ impl History {
         Ok(inserted)
     }
 
-    /// 최근 `days` 일의 그래프 점. 기간이 시작되기 직전 값에서 출발하고, 마지막 값을 지금까지 이어 준다.
-    pub fn trend(
-        &self,
-        account_id: &str,
-        window: WindowKind,
-        now: DateTime<Utc>,
-        days: i64,
-    ) -> Result<Vec<TrendPoint>, String> {
-        let since = now - Duration::days(days);
-        let connection = self.connection.lock().unwrap();
-
-        let before: Option<f64> = connection
-            .query_row(
-                "SELECT used_percent FROM usage_samples
-                 WHERE account_id = ?1 AND window = ?2 AND at < ?3
-                 ORDER BY at DESC LIMIT 1",
-                params![account_id, window.as_str(), since.timestamp()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| error.to_string())?;
-
-        let mut statement = connection
-            .prepare(
-                "SELECT at, used_percent FROM usage_samples
-                 WHERE account_id = ?1 AND window = ?2 AND at >= ?3 AND at <= ?4
-                 ORDER BY at",
-            )
-            .map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map(
-                params![
-                    account_id,
-                    window.as_str(),
-                    since.timestamp(),
-                    now.timestamp()
-                ],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?)),
-            )
-            .map_err(|error| error.to_string())?;
-
-        let mut points = Vec::new();
-        if let Some(percent) = before {
-            points.push(TrendPoint { at: since, percent });
-        }
-        for row in rows {
-            let (seconds, percent) = row.map_err(|error| error.to_string())?;
-            if let Some(at) = Utc.timestamp_opt(seconds, 0).single() {
-                points.push(TrendPoint { at, percent });
-            }
-        }
-        if let Some(last) = points.last().cloned()
-            && last.at < now
-        {
-            points.push(TrendPoint {
-                at: now,
-                percent: last.percent,
-            });
-        }
-        Ok(points)
-    }
-
     /// 계정을 지울 때 그 계정의 기록도 지운다.
     pub fn delete_account(&self, account_id: &str) -> Result<(), String> {
         self.connection
@@ -449,6 +385,7 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     fn sample(at: DateTime<Utc>, used_percent: f64) -> Sample {
         Sample {
@@ -482,13 +419,9 @@ mod tests {
                 .record("a", WindowKind::Weekly, &sample(at(1, now), 12.0), "live")
                 .unwrap()
         );
-        let trend = history.trend("a", WindowKind::Weekly, now, 7).unwrap();
-        let values: Vec<f64> = trend.iter().map(|point| point.percent).collect();
-        assert_eq!(
-            values,
-            vec![10.0, 12.0, 12.0],
-            "마지막 값을 지금까지 이어 줌"
-        );
+        let samples = history.samples("a", WindowKind::Weekly, None, now).unwrap();
+        let values: Vec<f64> = samples.iter().map(|sample| sample.used_percent).collect();
+        assert_eq!(values, vec![10.0, 12.0], "같은 값(10)은 한 번만 남는다");
     }
 
     #[test]
@@ -529,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn trend_starts_from_value_before_the_window() {
+    fn samples_include_the_value_before_the_range() {
         let history = History::in_memory().unwrap();
         let now = Utc::now();
         history
@@ -543,9 +476,13 @@ mod tests {
         history
             .record("a", WindowKind::Weekly, &sample(at(5, now), 45.0), "live")
             .unwrap();
-        let trend = history.trend("a", WindowKind::Weekly, now, 7).unwrap();
-        assert_eq!(trend.first().unwrap().percent, 40.0);
-        assert_eq!(trend.first().unwrap().at, now - Duration::days(7));
+        // 기간(최근 7일) 앞의 마지막 기록도 맨 앞에 붙여 준다 (그래프가 기간 시작부터 이어지게)
+        let samples = history
+            .samples("a", WindowKind::Weekly, Some(now - Duration::days(7)), now)
+            .unwrap();
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[0].used_percent, 40.0);
+        assert_eq!(samples[1].used_percent, 45.0);
     }
 
     #[test]
@@ -576,7 +513,7 @@ mod tests {
         history.delete_account("a").unwrap();
         assert!(
             history
-                .trend("a", WindowKind::Weekly, now, 7)
+                .samples("a", WindowKind::Weekly, None, now)
                 .unwrap()
                 .is_empty()
         );

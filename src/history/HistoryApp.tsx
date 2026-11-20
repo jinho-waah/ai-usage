@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { getHistory, getSettings, onSettingsChanged, onSnapshotUpdated } from "../api";
+import { getHistory, onSnapshotUpdated } from "../api";
 import { Segmented } from "../components/Segmented";
 import { formatAsOf, locale, t } from "../i18n";
 import { chartColor } from "../palette";
-import type { HistoryAccount, HistoryCycle, HistoryData, HistoryRange, HistorySeries, Settings } from "../types";
+import type { HistoryAccount, HistoryCycle, HistoryData, HistoryRange, HistorySeries } from "../types";
 import { LineChart, valueAt, type ChartLine, type ChartMarker } from "./LineChart";
 import { cycleTicks, timeTicks } from "./ticks";
 import "./history.css";
@@ -43,16 +43,10 @@ export function HistoryApp() {
   const [data, setData] = useState<HistoryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
   const dark = usePrefersDark();
 
   useEffect(() => {
     document.title = t("historyTitle");
-    getSettings().then(setSettings);
-    const unlisten = onSettingsChanged(setSettings);
-    return () => {
-      unlisten.then((stop) => stop());
-    };
   }, []);
 
   const load = useCallback(() => {
@@ -76,8 +70,8 @@ export function HistoryApp() {
     };
   }, [load]);
 
-  const remaining = settings?.percentMode !== "used";
-  const show = (percent: number) => (remaining ? 100 - percent : percent);
+  // 그래프는 표시 기준과 상관없이 쓴 양(누적)으로 그린다: 쌓이다가 리셋 때 0% 로 떨어지는 모양
+  const show = (percent: number) => percent;
   const colorOf = (account: HistoryAccount) => chartColor(account.color, dark);
 
   return (
@@ -94,7 +88,7 @@ export function HistoryApp() {
           ]}
           onChange={setRange}
         />
-        <span className="history-basis">{remaining ? t("basisRemaining") : t("basisUsed")}</span>
+        <span className="history-basis">{t("graphBasis")}</span>
       </header>
 
       {error && <p className="error-text">{`${t("loadFailed")}: ${error}`}</p>}
@@ -104,8 +98,6 @@ export function HistoryApp() {
       ) : (
         data && (
           <>
-            {/* 맨 위: 주기마다 리셋까지 얼마나 쌓였는지 */}
-            <CyclesCard data={data} show={show} colorOf={colorOf} />
             <TrendCard
               title={t("weeklyUsage")}
               data={data}
@@ -117,6 +109,7 @@ export function HistoryApp() {
             {data.session.length > 0 && (
               <TrendCard title={t("sessionUsage")} data={data} series={data.session} show={show} colorOf={colorOf} />
             )}
+            <CyclesCard data={data} show={show} colorOf={colorOf} />
           </>
         )
       )}

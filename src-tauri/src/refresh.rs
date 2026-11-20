@@ -62,17 +62,20 @@ pub fn record_history(state: &AppState) {
     }
 }
 
+/// 팝오버 미니 그래프가 보여 주는 기간 (일)
+const TREND_DAYS: i64 = 7;
+
 /// 팝오버 미니 그래프 하나: 점들과 가로축 범위
 #[derive(Debug, Clone, Default)]
 pub struct CycleTrend {
     pub points: Vec<TrendPoint>,
-    /// 이번 주기 시작과 리셋 시각. 모르면 `None` (그때 점들은 최근 7일)
+    /// 가로축 시작과 끝 (최근 7일)
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
 }
 
-/// 팝오버 미니 그래프: 이번 주기 시작부터 지금까지의 누적 사용률. 가로축은 리셋 시각까지.
-/// 주간 한도가 있으면 주간, 없으면 5시간 세션. 리셋 시각을 모르면 예전처럼 최근 7일.
+/// 팝오버 미니 그래프: 최근 7일 동안 쓴 양(누적). 리셋 때 0% 로 떨어졌다가 다시 쌓이는 모양이 보인다.
+/// 주간 한도가 있으면 주간, 없으면 5시간 세션.
 fn trends(
     state: &AppState,
     accounts: &[Account],
@@ -82,77 +85,76 @@ fn trends(
     let Some(history) = &state.history else {
         return HashMap::new();
     };
+    let from = now - chrono::Duration::days(TREND_DAYS);
     accounts
         .iter()
         .map(|account| {
             let usage = data.get(&account.id).and_then(|data| data.usage.as_ref());
-            let (window, seconds, live) = match usage {
+            let (window, live) = match usage {
                 Some(usage) if usage.weekly.is_some() => {
-                    (WindowKind::Weekly, WEEK_SECONDS, usage.weekly.as_ref())
+                    (WindowKind::Weekly, usage.weekly.as_ref())
                 }
                 Some(usage) if usage.session.is_some() => {
-                    (WindowKind::Session, SESSION_SECONDS, usage.session.as_ref())
+                    (WindowKind::Session, usage.session.as_ref())
                 }
-                _ => (WindowKind::Weekly, WEEK_SECONDS, None),
+                _ => (WindowKind::Weekly, None),
             };
-            let reset = live
-                .and_then(|window| window.resets_at)
-                .filter(|reset| *reset > now);
-            let trend = match (reset, live) {
-                (Some(end), Some(live)) => {
-                    let start = end - chrono::Duration::seconds(seconds);
-                    let samples = history
-                        .samples(&account.id, window, Some(start), now)
-                        .unwrap_or_default();
-                    CycleTrend {
-                        points: cycle_points(&samples, start, now, live.percent),
-                        start: Some(start),
-                        end: Some(end),
-                    }
-                }
-                _ => CycleTrend {
-                    points: history
-                        .trend(&account.id, window, now, 7)
-                        .unwrap_or_default(),
-                    start: None,
-                    end: None,
-                },
+            // 리셋 시각을 정확히 나누려고 그래프 기간보다 2주 더 앞부터 읽는다
+            let samples = history
+                .samples(
+                    &account.id,
+                    window,
+                    Some(from - chrono::Duration::days(14)),
+                    now,
+                )
+                .unwrap_or_default();
+            let trend = CycleTrend {
+                points: recent_points(&samples, window, live, from, now),
+                start: Some(from),
+                end: Some(now),
             };
             (account.id.clone(), trend)
         })
         .collect()
 }
 
-/// 이번 주기의 누적 곡선 점들.
-/// - 주기 시작 전 기록이 있으면(리셋을 지나 계속 기록 중이면) 시작 시각에 0% 에서 출발한다.
-/// - 기록이 주기 중간부터 시작됐으면 첫 기록부터 그린다 (그 전은 모르므로 지어내지 않는다).
-/// - 끝은 지금의 실제 값 (막대와 같은 값).
-pub fn cycle_points(
+/// 최근 기간(`from` ~ 지금)의 그래프 점.
+/// - 주간 한도는 주기를 나눠서 리셋 시각에 0% 로 떨어지게 그린다.
+/// - 끝은 지금의 실제 값 (막대와 같은 값을 쓴 양으로).
+pub fn recent_points(
     samples: &[crate::history::Sample],
-    start: DateTime<Utc>,
+    window: WindowKind,
+    live: Option<&crate::model::RawWindow>,
+    from: DateTime<Utc>,
     now: DateTime<Utc>,
-    current_percent: f64,
 ) -> Vec<TrendPoint> {
-    let mut points = Vec::new();
-    if samples.first().is_some_and(|first| first.at < start) {
-        points.push(TrendPoint {
-            at: start,
-            percent: 0.0,
-        });
-    }
-    points.extend(
-        samples
-            .iter()
-            .filter(|sample| sample.at >= start && sample.at <= now)
-            .map(|sample| TrendPoint {
-                at: sample.at,
-                percent: sample.used_percent,
+    let mut points = match window {
+        WindowKind::Weekly => {
+            let live_reset = live.and_then(|window| window.resets_at);
+            let spans = crate::history_view::split_cycles(samples, live_reset, now);
+            crate::history_view::weekly_series(&spans, from, now).0
+        }
+        WindowKind::Session => crate::history_view::clip(
+            samples
+                .iter()
+                .map(|sample| TrendPoint {
+                    at: sample.at,
+                    percent: sample.used_percent,
+                })
+                .collect(),
+            from,
+            now,
+        ),
+    };
+    if let Some(live) = live {
+        match points.last_mut() {
+            Some(last) if last.at == now => last.percent = live.percent,
+            _ => points.push(TrendPoint {
+                at: now,
+                percent: live.percent,
             }),
-    );
-    points.push(TrendPoint {
-        at: now,
-        percent: current_percent,
-    });
+        }
+    }
     points
 }
 
@@ -470,29 +472,39 @@ mod tests {
     use chrono::Duration;
 
     #[test]
-    fn mini_trend_is_this_cycle_from_reset_to_now() {
+    fn mini_trend_shows_the_last_week_with_resets_dropping_to_zero() {
         use crate::history::Sample;
+        use crate::model::RawWindow;
         let now = Utc::now();
-        let start = now - Duration::days(3);
-        let sample = |days_ago: i64, percent: f64| Sample {
+        let reset = now - Duration::days(3);
+        let next_reset = reset + Duration::days(7);
+        let sample = |days_ago: i64, percent: f64, resets_at| Sample {
             at: now - Duration::days(days_ago),
             used_percent: percent,
-            resets_at: None,
+            resets_at: Some(resets_at),
         };
-        // 지난 주기 기록(80%)이 있으면 리셋 시각에 0% 에서 출발, 끝은 지금 값
-        let points = cycle_points(
-            &[sample(4, 80.0), sample(2, 10.0), sample(1, 25.0)],
-            start,
+        let samples = [
+            sample(6, 70.0, reset),
+            sample(4, 98.0, reset),
+            sample(2, 20.0, next_reset),
+            sample(1, 35.0, next_reset),
+        ];
+        let live = RawWindow {
+            percent: 41.0,
+            resets_at: Some(next_reset),
+        };
+        let points = recent_points(
+            &samples,
+            WindowKind::Weekly,
+            Some(&live),
+            now - Duration::days(7),
             now,
-            31.0,
         );
         let values: Vec<f64> = points.iter().map(|point| point.percent).collect();
-        assert_eq!(values, vec![0.0, 10.0, 25.0, 31.0]);
-        assert_eq!(points[0].at, start);
-
-        // 기록이 주기 중간부터 시작됐으면 첫 기록부터
-        let points = cycle_points(&[sample(1, 25.0)], start, now, 25.0);
-        assert_eq!(points.first().unwrap().percent, 25.0);
+        // 쌓이다가(70 → 98) 리셋 시각에 0%, 다시 쌓여(20 → 35) 지금 값(41)으로 끝난다
+        assert_eq!(values, vec![70.0, 98.0, 0.0, 20.0, 35.0, 41.0]);
+        assert_eq!(points[2].at, reset);
+        assert_eq!(points.last().unwrap().at, now);
     }
 
     #[test]

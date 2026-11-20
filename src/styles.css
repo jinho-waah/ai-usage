@@ -394,30 +394,9 @@ html.preview .popover {
 }
 
 .sparkline {
-  position: relative;
+  display: block;
   flex: 1;
   height: 26px;
-}
-
-.sparkline svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/* 일정한 속도로 써서 리셋 때 다 쓰는 경우 */
-.sparkline-pace {
-  stroke: var(--text-tertiary);
-  opacity: 0.7;
-}
-
-/* 지금 위치 */
-.sparkline-now {
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  border-radius: 50%;
 }
 
 /* ───────── 아래쪽 요약 ───────── */
