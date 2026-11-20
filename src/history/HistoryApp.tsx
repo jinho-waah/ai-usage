@@ -171,7 +171,7 @@ function TrendCard({ title, data, series, show, colorOf, withResets = false }: T
         lines={lines}
         xDomain={[start, end]}
         xTicks={(width) => timeTicks(start, end, width)}
-        height={240}
+        height={280}
         markers={markers}
         formatX={(x) => tooltipTime.format(new Date(x))}
         areaFor={lines.length === 1 ? lines[0].id : undefined}
@@ -306,7 +306,7 @@ function CyclesCard({ data, show, colorOf }: CyclesCardProps) {
                 lines={lines}
                 xDomain={[0, WEEK_HOURS]}
                 xTicks={() => cycleTicks((day) => (day === 7 ? t("resetTick") : t("dayN", { n: day })))}
-                height={190}
+                height={220}
                 formatX={(hours) =>
                   t("elapsed", { d: Math.floor(hours / 24), h: Math.floor(hours % 24) })
                 }
