@@ -32,7 +32,7 @@ pub struct MenubarModel {
     pub percent_mode: PercentMode,
 }
 
-/// 메뉴바에서 구분되지 않는 작은 차이는 버린다. 막대가 30pt 라서 0.5% 는 0.15pt 다.
+/// 메뉴바에서 구분되지 않는 작은 차이는 버린다. 막대가 20pt 라서 0.5% 는 0.1pt 다.
 /// 값이 같으면 모델이 같아지고, 같은 그림을 다시 그리지 않아도 된다.
 fn round_half(percent: f64) -> f64 {
     (percent * 2.0).round() / 2.0

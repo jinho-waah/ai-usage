@@ -37,8 +37,9 @@ const FONT_SIZE: f64 = 12.0;
 /// 라벨과 막대(또는 숫자) 사이
 const LABEL_GAP: f64 = 3.0;
 /// 계정과 계정 사이
-const ITEM_GAP: f64 = 9.0;
-const BAR_WIDTH: f64 = 30.0;
+const ITEM_GAP: f64 = 7.0;
+/// 계정이 여럿이면 메뉴바 자리가 모자라서 짧게 둔다. (30 → 20)
+const BAR_WIDTH: f64 = 20.0;
 const BAR_HEIGHT: f64 = 6.0;
 /// 시간 눈금의 굵기
 const MARKER_WIDTH: f64 = 1.5;
