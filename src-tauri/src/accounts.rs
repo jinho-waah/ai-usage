@@ -95,14 +95,15 @@ impl Account {
 
     /// 새 Codex 계정. Codex CLI 로그인 하나를 읽으므로 하나만 둔다.
     /// 색은 OpenAI 초록을 쓰되, 비슷한 색을 쓰는 계정이 이미 있으면 다른 색.
+    /// 메뉴바에는 "Codex" 다섯 글자 대신 "C" 한 글자만 (카드와 알림에는 이름 "Codex").
     pub fn new_codex(existing: &[Account]) -> Account {
         Account {
             id: Uuid::new_v4().to_string(),
             provider: Provider::Codex,
             name: "Codex".to_string(),
             label: AccountLabel {
-                kind: LabelKind::Name,
-                text: String::new(),
+                kind: LabelKind::Emoji,
+                text: "C".to_string(),
             },
             color: unused_color(existing, Some("#10A37F")),
             org_id: None,
@@ -231,6 +232,13 @@ mod tests {
         // Codex 는 OpenAI 초록이 비어 있으면 그것, 비슷한 초록이 이미 있으면 다른 색
         assert_eq!(Account::new_codex(&[]).color, "#10A37F");
         assert_ne!(Account::new_codex(&existing).color, "#10A37F");
+
+        // Codex 는 메뉴바에 "C" 한 글자로
+        let codex = Account::new_codex(&[]);
+        assert_eq!(
+            (codex.label.kind, codex.label.text.as_str()),
+            (LabelKind::Emoji, "C")
+        );
     }
 
     #[test]

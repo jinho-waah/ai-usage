@@ -424,10 +424,11 @@ function AccountEditor({ account, onDone }: { account: Account; onDone: () => vo
               className="text-input short"
               value={text}
               maxLength={4}
-              placeholder="💼"
+              placeholder="C"
               onChange={(event) => setText(event.target.value)}
             />
           )}
+          {kind === "emoji" && <span className="field-help">{t("labelTextHelp")}</span>}
           {kind === "name" && <span className="field-help">{t("labelNameHelp")}</span>}
         </div>
       </div>
