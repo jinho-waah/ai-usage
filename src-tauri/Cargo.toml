@@ -44,6 +44,8 @@ tauri-plugin-notification = "2"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
+# 메뉴바 그림에서 한도를 다 쓴 계정을 흐리게 그릴 때 (투명 레이어)
+objc2-core-graphics = "0.3"
 objc2-web-kit = "0.3"
 block2 = "0.6"
 # Admin API 키를 macOS 키체인에 저장할 때

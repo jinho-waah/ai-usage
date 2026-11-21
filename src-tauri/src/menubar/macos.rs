@@ -26,6 +26,7 @@ use objc2_app_kit::{
     NSForegroundColorAttributeName, NSGraphicsContext, NSImage, NSImageCacheMode, NSStatusBar,
     NSStatusItem, NSStringDrawing,
 };
+use objc2_core_graphics::CGContext;
 use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
 
 use super::MenubarModel;
@@ -41,6 +42,11 @@ const ITEM_GAP: f64 = 7.0;
 /// 계정이 여럿이면 메뉴바 자리가 모자라서 짧게 둔다. (30 → 20)
 const BAR_WIDTH: f64 = 20.0;
 const BAR_HEIGHT: f64 = 6.0;
+/// 조금이라도 남았으면(또는 썼으면) 채움을 이만큼은 그린다.
+/// 막대가 20pt 라서 3% 는 0.6pt 뿐이라 0% 와 구분되지 않았다.
+const MIN_FILL_WIDTH: f64 = 3.0;
+/// 한도를 다 쓴 계정을 그릴 때의 불투명도 (1 = 그대로, 0 = 안 보임)
+const DIM_ALPHA: f64 = 0.28;
 /// 시간 눈금의 굵기
 const MARKER_WIDTH: f64 = 1.5;
 /// 시간 눈금이 막대 위아래로 튀어나오는 길이
@@ -70,6 +76,18 @@ enum Piece {
         elapsed: Option<f64>,
         warn: bool,
     },
+}
+
+/// 그릴 조각과, 그 조각을 흐리게 그릴지 여부. (한도를 다 쓴 계정의 라벨·막대·숫자는 흐리게)
+struct Placed {
+    dim: bool,
+    piece: Piece,
+}
+
+impl Placed {
+    fn new(dim: bool, piece: Piece) -> Self {
+        Placed { dim, piece }
+    }
 }
 
 /// 메뉴바 항목(상태 항목)의 이미지를 새로 그려서 바꿔 끼운다. 메인 스레드에서만 부를 것.
@@ -126,7 +144,7 @@ fn text_width(text: &str, font: &NSFont) -> f64 {
 }
 
 /// 각 조각의 x 위치와 전체 너비를 계산한다.
-fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
+fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Placed>, f64) {
     let mut pieces = Vec::new();
     let mut x = EDGE_PADDING;
 
@@ -134,11 +152,14 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
         // 아직 계정이 없을 때
         let text = "AI".to_string();
         let width = text_width(&text, font);
-        pieces.push(Piece::Text {
-            x,
-            text,
-            warn: false,
-        });
+        pieces.push(Placed::new(
+            false,
+            Piece::Text {
+                x,
+                text,
+                warn: false,
+            },
+        ));
         return (pieces, x + width + EDGE_PADDING);
     }
 
@@ -150,16 +171,22 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
         // 1) 라벨: 별칭·이모지는 글자로, 색 점은 동그라미로
         match item.label_kind {
             LabelKind::Dot => {
-                pieces.push(Piece::Dot { x, rgb: item.color });
+                pieces.push(Placed::new(
+                    item.exhausted,
+                    Piece::Dot { x, rgb: item.color },
+                ));
                 x += DOT_SIZE;
             }
             LabelKind::Name | LabelKind::Emoji => {
                 let width = text_width(&item.label_text, font);
-                pieces.push(Piece::Text {
-                    x,
-                    text: item.label_text.clone(),
-                    warn: false,
-                });
+                pieces.push(Placed::new(
+                    item.exhausted,
+                    Piece::Text {
+                        x,
+                        text: item.label_text.clone(),
+                        warn: false,
+                    },
+                ));
                 x += width;
             }
         }
@@ -170,22 +197,28 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
             MenubarStyle::Bars => {
                 // 남은 양 모드면 채움·눈금이 뒤집힌 값이 온다 (model.bar_values 참고)
                 let (fill, marker) = model.bar_values(item);
-                pieces.push(Piece::Bar {
-                    x,
-                    used: fill,
-                    elapsed: marker,
-                    warn: item.warn,
-                });
+                pieces.push(Placed::new(
+                    item.exhausted,
+                    Piece::Bar {
+                        x,
+                        used: fill,
+                        elapsed: marker,
+                        warn: item.warn,
+                    },
+                ));
                 x += BAR_WIDTH;
             }
             MenubarStyle::Numbers => {
                 let text = model.number_text(item);
                 let width = text_width(&text, font);
-                pieces.push(Piece::Text {
-                    x,
-                    text,
-                    warn: item.warn,
-                });
+                pieces.push(Placed::new(
+                    item.exhausted,
+                    Piece::Text {
+                        x,
+                        text,
+                        warn: item.warn,
+                    },
+                ));
                 x += width;
             }
         }
@@ -195,13 +228,24 @@ fn layout(model: &MenubarModel, font: &NSFont) -> (Vec<Piece>, f64) {
 }
 
 /// 실제 그리기. macOS 가 이미지를 화면에 그릴 때 불린다.
-fn draw(pieces: &[Piece], font: &NSFont, height: f64) {
+fn draw(pieces: &[Placed], font: &NSFont, height: f64) {
     // `labelColor` 는 "지금 그리는 곳"의 밝기에 맞는 글자색으로 바뀌는 동적 색이다.
     let normal = NSColor::labelColor();
     let red = NSColor::systemRedColor();
     let center_y = height / 2.0;
+    let Some(context) = NSGraphicsContext::currentContext() else {
+        return;
+    };
+    let cg = context.CGContext();
 
-    for piece in pieces {
+    for Placed { dim, piece } in pieces {
+        // 흐리게 그릴 조각은 투명 레이어에 그린 뒤 통째로 투명도를 낮춰 합친다.
+        // 글자색만 바꾸면 이모지·색 점에는 안 먹으므로 이렇게 한다.
+        if *dim {
+            CGContext::save_g_state(Some(&cg));
+            CGContext::set_alpha(Some(&cg), DIM_ALPHA);
+            unsafe { CGContext::begin_transparency_layer(Some(&cg), None) };
+        }
         match piece {
             Piece::Text { x, text, warn } => {
                 let color = if *warn { &red } else { &normal };
@@ -228,6 +272,10 @@ fn draw(pieces: &[Piece], font: &NSFont, height: f64) {
                 let fill_color = if *warn { &red } else { &normal };
                 draw_bar(*x, center_y, *used, *elapsed, fill_color, &normal);
             }
+        }
+        if *dim {
+            CGContext::end_transparency_layer(Some(&cg));
+            CGContext::restore_g_state(Some(&cg));
         }
     }
 }
@@ -256,8 +304,12 @@ fn draw_bar(
     base.colorWithAlphaComponent(0.3).setFill();
     bar_shape.fill();
 
-    // 2) 사용량만큼 채우기. 둥근 막대 모양으로 잘라서(clip) 그리므로 1%도 자연스럽게 보인다.
-    let fill_width = BAR_WIDTH * used.clamp(0.0, 100.0) / 100.0;
+    // 2) 사용량만큼 채우기. 둥근 막대 모양으로 잘라서(clip) 그린다.
+    //    0 이 아니면 최소 폭을 둬서 "조금 남음"이 "0%"와 구분되게 한다.
+    let fill_width = match BAR_WIDTH * used.clamp(0.0, 100.0) / 100.0 {
+        width if width > 0.0 => width.max(MIN_FILL_WIDTH),
+        _ => 0.0,
+    };
     if fill_width > 0.0 {
         context.saveGraphicsState();
         bar_shape.addClip();

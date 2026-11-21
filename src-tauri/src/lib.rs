@@ -698,5 +698,30 @@ pub fn dev_render_menubar_previews(dir: &std::path::Path) -> Result<Vec<PathBuf>
             written.push(path);
         }
     }
+
+    // 한도를 다 쓴 계정(100%)과 거의 다 쓴 계정(97%)이 구분되는지 보는 그림
+    let mut nearly_out = snapshot.clone();
+    for (index, used) in [(0, 100.0), (1, 97.0)] {
+        let account = &mut nearly_out.accounts[index];
+        if let Some(window) = account.weekly.as_mut().or(account.session.as_mut()) {
+            window.used_percent = used;
+        }
+    }
+    for (name, percent_mode) in [
+        ("bars-nearly-out", PercentMode::Remaining),
+        ("bars-nearly-out-used", PercentMode::Used),
+    ] {
+        let settings = Settings {
+            menubar_style: MenubarStyle::Bars,
+            percent_mode,
+            ..Settings::default()
+        };
+        let model = MenubarModel::from_snapshot(&nearly_out, &settings);
+        for (mode, dark) in [("light", false), ("dark", true)] {
+            let path = dir.join(format!("menubar-{name}-{mode}.png"));
+            menubar::macos::render_preview_png(&model, dark, &path)?;
+            written.push(path);
+        }
+    }
     Ok(written)
 }

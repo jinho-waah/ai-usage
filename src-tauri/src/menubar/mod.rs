@@ -22,7 +22,12 @@ pub struct MenubarItem {
     pub elapsed_percent: Option<f64>,
     /// 사용량이 시간 진행보다 5%p 이상 앞섬 → 빨강
     pub warn: bool,
+    /// 한도를 다 씀 (화면에 "0% 남음"으로 보이는 값). 라벨과 막대를 흐리게 그린다.
+    pub exhausted: bool,
 }
+
+/// 이 이상 쓰면 다 쓴 것으로 본다. 숫자 표시가 반올림으로 "100%"(남은 양 "0%")가 되는 경계와 같다.
+const EXHAUSTED_PERCENT: f64 = 99.5;
 
 /// 메뉴바 이미지 하나를 그리는 데 필요한 정보 전부.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +58,7 @@ impl MenubarModel {
                     used_percent: window.used_percent,
                     elapsed_percent: window.elapsed_percent.map(round_half),
                     warn: window.ahead_of_pace,
+                    exhausted: window.used_percent >= EXHAUSTED_PERCENT,
                 })
             })
             .collect();
@@ -170,6 +176,36 @@ mod tests {
         let (fill, marker) = model.bar_values(item);
         assert!((fill - (100.0 - item.used_percent)).abs() < 1e-9);
         assert!((marker.unwrap() - (100.0 - item.elapsed_percent.unwrap())).abs() < 1e-9);
+    }
+
+    #[test]
+    fn only_a_used_up_limit_counts_as_exhausted() {
+        let now = Utc::now();
+        let mut snapshot = mock::snapshot(now, now);
+        // 모든 계정을 이름 라벨로 바꿔서, 빨강이 아니면 단색(템플릿)이 되게 한다.
+        for account in &mut snapshot.accounts {
+            account.label.kind = LabelKind::Name;
+            for window in [&mut account.weekly, &mut account.session].into_iter().flatten() {
+                window.ahead_of_pace = false;
+            }
+        }
+        let set_used = |snapshot: &mut Snapshot, index: usize, percent: f64| {
+            let account = &mut snapshot.accounts[index];
+            let window = account.weekly.as_mut().or(account.session.as_mut()).unwrap();
+            window.used_percent = percent;
+        };
+        set_used(&mut snapshot, 0, 97.0);
+        set_used(&mut snapshot, 1, 99.4);
+        set_used(&mut snapshot, 2, 12.0);
+        let model = MenubarModel::from_snapshot(&snapshot, &Settings::default());
+        assert!(!model.items[0].exhausted, "3% 남음은 아직 다 쓴 게 아님");
+        assert!(!model.items[1].exhausted, "99.4% 는 \"1% 남음\"으로 보이므로 아님");
+        assert!(model.is_monochrome());
+
+        set_used(&mut snapshot, 1, 100.0);
+        let model = MenubarModel::from_snapshot(&snapshot, &Settings::default());
+        assert!(model.items[1].exhausted);
+        assert!(model.is_monochrome(), "흐리게 그릴 뿐 색은 없으므로 여전히 단색 이미지");
     }
 
     #[test]
