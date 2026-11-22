@@ -331,10 +331,14 @@ export function formatAsOf(iso: string, now: number): string {
   return at.toDateString() === new Date(now).toDateString() ? sameDayTime.format(at) : otherDayTime.format(at);
 }
 
-/** 남은 시간을 시간 단위로, 분은 소수 한 자리로 (예: 2시간 40분 → "2.7시간") */
+/**
+ * 남은 시간. 1시간 이상은 시간 단위 소수 한 자리(2시간 40분 → "2.7시간"),
+ * 1시간 미만은 분(24분 → "24분"). 분은 올려서, 시간이 남아 있는 동안 "0분"이 되지 않게 한다.
+ */
 export function formatHours(milliseconds: number): string {
-  const hours = Math.max(0, milliseconds) / 3_600_000;
-  return t("hoursDecimal", { n: hours.toFixed(1) });
+  const minutes = Math.ceil(Math.max(0, milliseconds) / 60_000);
+  if (minutes < 60) return t("minutes", { n: minutes });
+  return t("hoursDecimal", { n: (minutes / 60).toFixed(1) });
 }
 
 export function formatPercent(value: number): string {

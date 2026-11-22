@@ -314,11 +314,15 @@ fn reached_message(
     };
     let body = match window.resets_at {
         Some(reset) if reset > now => {
-            let hours = (reset - now).num_minutes() as f64 / 60.0;
-            if korean {
-                format!("리셋까지 {hours:.1}시간 남았어요.")
-            } else {
-                format!("Resets in {hours:.1} hours.")
+            // 팝오버와 같게: 1시간 미만은 분으로, 분은 올린다
+            let minutes = ((reset - now).num_seconds() + 59) / 60;
+            let hours = minutes as f64 / 60.0;
+            match (minutes < 60, korean) {
+                (true, true) => format!("리셋까지 {minutes}분 남았어요."),
+                (true, false) if minutes == 1 => "Resets in 1 minute.".to_string(),
+                (true, false) => format!("Resets in {minutes} minutes."),
+                (false, true) => format!("리셋까지 {hours:.1}시간 남았어요."),
+                (false, false) => format!("Resets in {hours:.1} hours."),
             }
         }
         _ => String::new(),
@@ -399,6 +403,15 @@ mod tests {
         let (title, body) = reached_message("W1", true, &window, PercentMode::Remaining, now, true);
         assert_eq!(title, "W1 주간 한도 8% 남음");
         assert_eq!(body, "리셋까지 2.5시간 남았어요.");
+        // 1시간 미만은 분으로, 남은 초는 올린다
+        let soon = RawWindow {
+            percent: 92.0,
+            resets_at: Some(now + chrono::Duration::seconds(24 * 60 - 30)),
+        };
+        let (_, body) = reached_message("W1", false, &soon, PercentMode::Used, now, true);
+        assert_eq!(body, "리셋까지 24분 남았어요.");
+        let (_, body) = reached_message("W1", false, &soon, PercentMode::Used, now, false);
+        assert_eq!(body, "Resets in 24 minutes.");
         let (title, _) = reached_message("W1", false, &window, PercentMode::Used, now, true);
         assert_eq!(title, "W1 5시간 한도 92% 사용");
         let full = RawWindow {
