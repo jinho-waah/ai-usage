@@ -39,12 +39,21 @@ export function AccountCard({ account, percentMode, now, onSignIn }: AccountCard
   const marker = (elapsed: number | null | undefined) =>
     elapsed === null || elapsed === undefined ? undefined : remaining ? 100 - elapsed : elapsed;
   const hasUsage = account.weekly !== null || account.session !== null;
+  // 이름을 이메일 그대로 지었으면 두 번 보이지 않게 한다
+  const email = account.email && account.email !== account.name ? account.email : null;
 
   return (
     <section className="card">
       <div className="card-head">
         <LabelBadge label={account.label} color={account.color} />
-        <span className="card-name">{account.name}</span>
+        <span className="card-title">
+          <span className="card-name">{account.name}</span>
+          {email && (
+            <span className="card-email" title={email}>
+              {email}
+            </span>
+          )}
+        </span>
         {account.plan && <span className="card-plan">{account.plan}</span>}
       </div>
 

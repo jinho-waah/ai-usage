@@ -165,6 +165,12 @@ pub async fn refresh_codex_account(app: &AppHandle, account: &Account) {
     let state = app.state::<AppState>();
     let home = codex::codex_home();
     let credentials = codex::read_credentials(&home);
+    // 이메일은 로그인 파일에서 바로 알 수 있다. 사용량 조회가 실패해도 보여 준다.
+    if let Ok(found) = &credentials
+        && let Some(email) = &found.email
+    {
+        state.update_data(&account.id, |data| data.email = Some(email.clone()));
+    }
     let outcome = match &credentials {
         Ok(credentials) => Some(codex::fetch_usage(credentials).await),
         Err(_) => None,
@@ -274,6 +280,7 @@ pub fn build_snapshot(
                 id: account.id.clone(),
                 provider: account.provider,
                 name: account.name.clone(),
+                email: data.email.or_else(|| account.email.clone()),
                 label: account.label.clone(),
                 color: account.color.clone(),
                 plan: data.plan.clone().or_else(|| account.plan.clone()),
@@ -664,5 +671,36 @@ mod tests {
         let weekly = snapshot.accounts[0].weekly.as_ref().unwrap();
         assert!((weekly.elapsed_percent.unwrap() - 50.0).abs() < 0.1);
         assert!(weekly.ahead_of_pace);
+    }
+
+    #[test]
+    fn email_comes_from_saved_account_or_latest_lookup() {
+        // Claude 는 계정에 저장한 이메일, Codex 는 조회할 때 로그인 파일에서 읽은 이메일
+        let mut claude = Account::new_claude(&[]);
+        claude.email = Some("saved@example.com".into());
+        let codex = Account::new_codex(std::slice::from_ref(&claude));
+        let mut data = HashMap::new();
+        data.insert(
+            codex.id.clone(),
+            AccountData {
+                email: Some("codex@example.com".into()),
+                ..AccountData::default()
+            },
+        );
+        let snapshot = build_snapshot(
+            &[claude, codex],
+            &data,
+            &HashMap::new(),
+            Summary::default(),
+            Utc::now(),
+        );
+        assert_eq!(
+            snapshot.accounts[0].email.as_deref(),
+            Some("saved@example.com")
+        );
+        assert_eq!(
+            snapshot.accounts[1].email.as_deref(),
+            Some("codex@example.com")
+        );
     }
 }

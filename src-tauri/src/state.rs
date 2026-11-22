@@ -22,6 +22,8 @@ pub struct AccountData {
     pub extra: Option<ExtraUsage>,
     /// 조회할 때 알게 된 플랜 이름 (Codex 처럼 응답에 플랜이 같이 오는 경우)
     pub plan: Option<String>,
+    /// 조회할 때 알게 된 이메일 (Codex 처럼 로그인 파일에 이메일이 있는 경우)
+    pub email: Option<String>,
     /// `None` 이면 아직 한 번도 조회하지 않음
     pub status: Option<AccountStatus>,
     pub updated_at: Option<DateTime<Utc>>,

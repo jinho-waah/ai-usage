@@ -181,6 +181,8 @@ pub struct AccountUsage {
     pub provider: Provider,
     /// 사용자가 붙인 이름 (예: "개인")
     pub name: String,
+    /// 로그인한 계정 이메일. 카드에서 이름 옆에 흐리게 보여 준다. 모르면 `None`.
+    pub email: Option<String>,
     pub label: AccountLabel,
     /// 계정 색 ("#RRGGBB"). 색 점 라벨과 차트에 쓴다.
     pub color: String,

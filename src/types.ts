@@ -45,6 +45,8 @@ export interface AccountUsage {
   id: string;
   provider: Provider;
   name: string;
+  /** 로그인한 계정 이메일. 카드에서 이름 옆에 흐리게 보여 준다. 모르면 null */
+  email: string | null;
   label: AccountLabel;
   /** "#RRGGBB" */
   color: string;
@@ -83,6 +85,8 @@ export interface Account {
   orgId: string | null;
   orgName: string | null;
   plan: string | null;
+  /** 로그인한 claude.ai 계정 이메일 (Codex 는 항상 null) */
+  email: string | null;
 }
 
 /** 계정에서 사용자가 고칠 수 있는 항목 */

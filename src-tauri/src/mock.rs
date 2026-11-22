@@ -49,6 +49,7 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             id: "mock-personal".into(),
             provider: Provider::Claude,
             name: "개인".into(),
+            email: Some("me@example.com".into()),
             label: AccountLabel {
                 kind: LabelKind::Name,
                 text: String::new(),
@@ -86,6 +87,7 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             id: "mock-work".into(),
             provider: Provider::Claude,
             name: "회사".into(),
+            email: Some("me@company.example".into()),
             label: AccountLabel {
                 kind: LabelKind::Emoji,
                 text: "💼".into(),
@@ -107,6 +109,7 @@ pub fn snapshot(started_at: DateTime<Utc>, now: DateTime<Utc>) -> Snapshot {
             id: "mock-codex".into(),
             provider: Provider::Codex,
             name: "Codex".into(),
+            email: Some("me@example.com".into()),
             label: AccountLabel {
                 kind: LabelKind::Dot,
                 text: String::new(),

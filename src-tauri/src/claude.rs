@@ -201,6 +201,17 @@ pub fn default_account_name(organization_name: &str) -> Option<String> {
     (!base.is_empty()).then(|| base.chars().take(20).collect())
 }
 
+/// `/api/account` 응답에서 로그인한 계정의 이메일을 꺼낸다. 없으면 `None`.
+///
+/// 응답 예시 (2026-11 기준): `{"uuid": "...", "email_address": "someone@example.com",
+///   "full_name": "...", "memberships": [...], "settings": {...}}`
+pub fn parse_account_email(json: &Value) -> Option<String> {
+    text(json, "email_address")
+        .map(str::trim)
+        .filter(|email| email.contains('@'))
+        .map(String::from)
+}
+
 /// 계정 웹뷰 안에서 `fetch` 한 결과 (자바스크립트가 JSON 으로 돌려준다)
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -430,6 +441,20 @@ mod tests {
         // 이미 고른 조직이 있으면 유지
         let kept = preferred_organization(&organizations, Some("api-only")).unwrap();
         assert_eq!(kept.uuid, "api-only");
+    }
+
+    #[test]
+    fn account_email_from_account_response() {
+        let response = json!({
+            "uuid": "u-1", "email_address": " someone@example.com ", "full_name": "Someone",
+            "memberships": [{ "organization": { "uuid": "personal" } }]
+        });
+        assert_eq!(
+            parse_account_email(&response).as_deref(),
+            Some("someone@example.com")
+        );
+        assert_eq!(parse_account_email(&json!({ "email_address": "" })), None);
+        assert_eq!(parse_account_email(&json!({ "uuid": "u-1" })), None);
     }
 
     #[test]

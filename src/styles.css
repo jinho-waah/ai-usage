@@ -195,8 +195,24 @@ html.preview .popover {
   margin-bottom: 6px;
 }
 
+/* 이름 옆에 이메일을 흐리게 이어 쓴다. 한 줄에 다 안 들어가면 끝을 말줄임 (말줄임표도 이메일처럼 흐리게) */
+.card-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card-name {
+  color: var(--text);
+  font-size: 13px;
   font-weight: 600;
+}
+
+.card-email {
+  margin-left: 6px;
 }
 
 .card-plan {
@@ -208,13 +224,16 @@ html.preview .popover {
   font-size: 11px;
 }
 
+/* 이름·이메일이 길어도 라벨이 눌리지 않게 */
 .label-emoji {
+  flex: none;
   width: 18px;
   font-size: 14px;
   text-align: center;
 }
 
 .label-dot {
+  flex: none;
   width: 9px;
   height: 9px;
   margin: 0 4.5px;

@@ -99,6 +99,7 @@ export function addClaudeAccount(): Promise<Account> {
     orgId: null,
     orgName: null,
     plan: null,
+    email: null,
   };
   browserAccounts = [...browserAccounts, account];
   return Promise.resolve(account);
@@ -119,6 +120,7 @@ export function addCodexAccount(): Promise<Account> {
     orgId: null,
     orgName: null,
     plan: "Pro",
+    email: null,
   };
   browserAccounts = [...browserAccounts, account];
   return Promise.resolve(account);

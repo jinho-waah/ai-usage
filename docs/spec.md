@@ -33,8 +33,8 @@
 
 | 대상 | 방식 | 인증 정보 저장 | 갱신 |
 |---|---|---|---|
-| Claude 구독 (계정 N개) | 계정마다 앱 안에서 claude.ai에 로그인한다. 계정별로 WebKit 데이터 저장소를 분리한다. 요청은 그 계정의 숨은 웹뷰 안에서 `fetch`로 보낸다(Cloudflare 대응). `/api/organizations/{orgId}/usage`, Extra usage와 크레딧 관련 엔드포인트를 쓴다 | 계정별 WebKit 쿠키 저장소 | 1분 |
-| Codex | `~/.codex/auth.json`을 읽기 전용으로 쓰고 `chatgpt.com/backend-api/wham/usage`를 조회한다. 토큰이 만료되면 `~/.codex/sessions` 로그의 `rate_limits`로 대체한다 | 앱에 저장하지 않음 | 1분 |
+| Claude 구독 (계정 N개) | 계정마다 앱 안에서 claude.ai에 로그인한다. 계정별로 WebKit 데이터 저장소를 분리한다. 요청은 그 계정의 숨은 웹뷰 안에서 `fetch`로 보낸다(Cloudflare 대응). `/api/organizations/{orgId}/usage`, Extra usage와 크레딧 관련 엔드포인트를 쓴다. 계정 이메일은 `/api/account`(플랜과 함께 6시간마다) | 계정별 WebKit 쿠키 저장소 | 1분 |
+| Codex | `~/.codex/auth.json`을 읽기 전용으로 쓰고 `chatgpt.com/backend-api/wham/usage`를 조회한다. 토큰이 만료되면 `~/.codex/sessions` 로그의 `rate_limits`로 대체한다. 계정 이메일은 `auth.json` 로그인 토큰(id_token)에서 읽는다 | 앱에 저장하지 않음 | 1분 |
 | Claude API 비용 | **계정마다** Admin API 키를 넣는다(계정마다 Console 조직이 다를 수 있음). 공식 Usage and Cost Analytics API(`/v1/organizations/analytics/cost`)로 이번 달 비용을 받아 그 계정 카드에 보여 준다. 데이터는 보통 몇 시간 늦다 | 키체인 (계정마다 `admin-api-key:<계정 ID>`) | 1시간 |
 | Claude Code 토큰·비용 | `~/.claude/projects/**/*.jsonl`을 증분 파싱하고, 가격표로 비용을 추정한다. Orca 프로필들이 로그 폴더를 공유해서 계정별로는 나눌 수 없고 이 Mac 전체 합계다 | 없음 | 5분 (팝오버를 열면 즉시) |
 | 브랜드별 누적 토큰 | Claude: 위 Claude Code 로그. Codex: `~/.codex/sessions/**/*.jsonl` 의 `token_count`(`total_token_usage`). 날마다 집계해 앱 DB 에 **영구 저장**한다. Claude Code 는 기본 30일 지난 로그를 지우므로, 앱이 따로 남겨야 누적이 유지된다 | 없음 | 5분 |
@@ -81,7 +81,7 @@
 ```
 
 - 카드 안
-  - 이름과 플랜
+  - 이름, 로그인한 계정 이메일(이름 옆에 흐리게, 길면 말줄임), 플랜
   - 주간 막대(시간 눈금 포함)와 리셋 시각
   - 5시간 세션 (있을 때만)
   - 모델별 한도 (접어서 표시)

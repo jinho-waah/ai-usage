@@ -22,11 +22,13 @@ const WEEK_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// 세션 로그 파일에서 끝부분만 읽는다 (파일이 클 수 있어서)
 const LOG_TAIL_BYTES: u64 = 512 * 1024;
 
-/// Codex 로그인 정보 중 사용량 조회에 필요한 것
+/// Codex 로그인 정보 중 앱이 쓰는 것 (사용량 조회, 카드에 보여 줄 이메일)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Credentials {
     pub access_token: String,
     pub account_id: Option<String>,
+    /// 로그인한 ChatGPT 계정 이메일 (로그인 토큰 안에 든 값)
+    pub email: Option<String>,
 }
 
 /// Codex 에서 받아 온 사용량과 플랜
@@ -57,7 +59,7 @@ pub fn codex_home() -> PathBuf {
     PathBuf::from(user_home).join(".codex")
 }
 
-/// `auth.json` 에서 토큰과 계정 ID 를 읽는다.
+/// `auth.json` 에서 토큰, 계정 ID, 이메일을 읽는다.
 pub fn read_credentials(home: &Path) -> Result<Credentials, String> {
     let text = fs::read_to_string(home.join("auth.json")).map_err(|_| {
         "Codex CLI 로그인 정보가 없어요. 터미널에서 `codex login` 을 먼저 해 주세요.".to_string()
@@ -80,31 +82,44 @@ pub fn parse_credentials(json: &Value) -> Result<Credentials, String> {
             .map(String::from)
     };
     let access_token = field("access_token", "accessToken").ok_or("Codex 로그인 토큰이 없어요")?;
+    // 로그인 토큰(JWT) 안의 값. id_token 을 먼저 보고, 없으면 access_token 에서 찾는다.
+    let claims: Vec<Value> = [field("id_token", "idToken"), Some(access_token.clone())]
+        .into_iter()
+        .flatten()
+        .filter_map(|token| jwt_claims(&token))
+        .collect();
+    let claim = |pointers: &[&str]| {
+        claims.iter().find_map(|token_claims| {
+            pointers
+                .iter()
+                .find_map(|pointer| token_claims.pointer(pointer).and_then(Value::as_str))
+                .map(String::from)
+        })
+    };
+    // account_id 가 없으면 로그인 토큰 안의 chatgpt_account_id 를 쓴다
     let account_id = field("account_id", "accountId").or_else(|| {
-        // account_id 가 없으면 로그인 토큰(JWT) 안의 chatgpt_account_id 를 쓴다
-        [field("id_token", "idToken"), Some(access_token.clone())]
-            .into_iter()
-            .flatten()
-            .find_map(|token| account_id_from_jwt(&token))
+        claim(&[
+            "/chatgpt_account_id",
+            "/https:~1~1api.openai.com~1auth/chatgpt_account_id",
+        ])
     });
+    // 이메일: id_token 에는 맨 위에, access_token 에는 프로필 안에 있다
+    let email = claim(&["/email", "/https:~1~1api.openai.com~1profile/email"])
+        .filter(|email| email.contains('@'));
     Ok(Credentials {
         access_token,
         account_id,
+        email,
     })
 }
 
-/// JWT 의 가운데 부분(payload)을 풀어서 chatgpt_account_id 를 찾는다. (서명 검증은 하지 않음)
-fn account_id_from_jwt(token: &str) -> Option<String> {
+/// JWT 의 가운데 부분(payload)을 푼다. (서명 검증은 하지 않음)
+fn jwt_claims(token: &str) -> Option<Value> {
     let payload = token.split('.').nth(1)?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(payload.trim_end_matches('='))
         .ok()?;
-    let claims: Value = serde_json::from_slice(&bytes).ok()?;
-    claims
-        .get("chatgpt_account_id")
-        .or_else(|| claims.pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id"))
-        .and_then(Value::as_str)
-        .map(String::from)
+    serde_json::from_slice(&bytes).ok()
 }
 
 /// 사용량 API 를 부른다.
@@ -403,7 +418,8 @@ mod tests {
             parse_credentials(&snake).unwrap(),
             Credentials {
                 access_token: "at".into(),
-                account_id: Some("acc-1".into())
+                account_id: Some("acc-1".into()),
+                email: None,
             }
         );
 
@@ -415,6 +431,28 @@ mod tests {
         assert_eq!(
             parse_credentials(&camel).unwrap().account_id.as_deref(),
             Some("acc-jwt")
+        );
+
+        // 이메일은 id_token 맨 위의 email, 없으면 access_token 프로필 안의 email
+        let jwt = |claims: Value| {
+            let payload =
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
+            format!("h.{payload}.s")
+        };
+        let with_id_token = json!({"tokens": {
+            "access_token": jwt(json!({"https://api.openai.com/profile": {"email": "other@example.com"}})),
+            "id_token": jwt(json!({"email": "someone@example.com"}))
+        }});
+        assert_eq!(
+            parse_credentials(&with_id_token).unwrap().email.as_deref(),
+            Some("someone@example.com")
+        );
+        let access_only = json!({"tokens": {
+            "access_token": jwt(json!({"https://api.openai.com/profile": {"email": "other@example.com"}}))
+        }});
+        assert_eq!(
+            parse_credentials(&access_only).unwrap().email.as_deref(),
+            Some("other@example.com")
         );
 
         assert!(

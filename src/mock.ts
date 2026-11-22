@@ -83,6 +83,7 @@ export function mockSnapshot(): Snapshot {
       id: "mock-personal",
       provider: "claude",
       name: "개인",
+      email: "me@example.com",
       label: { kind: "name", text: "" },
       color: "#D97757",
       plan: "Ultra",
@@ -102,6 +103,7 @@ export function mockSnapshot(): Snapshot {
       id: "mock-work",
       provider: "claude",
       name: "회사",
+      email: "me@company.example",
       label: { kind: "emoji", text: "💼" },
       color: "#6A9BCC",
       plan: "Pro",
@@ -118,6 +120,7 @@ export function mockSnapshot(): Snapshot {
       id: "mock-codex",
       provider: "codex",
       name: "Codex",
+      email: "me@example.com",
       label: { kind: "dot", text: "" },
       color: "#10A37F",
       plan: "Pro",
@@ -189,6 +192,7 @@ export function mockAccounts(): Account[] {
     orgId: account.status.kind === "needsLogin" ? null : "mock-org",
     orgName: account.provider === "claude" ? `${account.name}@example.com's Organization` : null,
     plan: account.plan,
+    email: account.provider === "claude" ? account.email : null,
   }));
 }
 

@@ -33,7 +33,7 @@ const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const LOGIN_POLL_LIMIT: u32 = 900; // 2초 × 900 = 30분
 /// Extra usage 는 자주 바뀌지 않으므로 10분마다만 확인한다
 const EXTRA_USAGE_INTERVAL_MINUTES: i64 = 10;
-/// 플랜(업그레이드·이름 변경)은 6시간마다 다시 확인한다
+/// 플랜(업그레이드·이름 변경)과 계정 이메일은 6시간마다 다시 확인한다
 const PLAN_CHECK_INTERVAL_HOURS: i64 = 6;
 
 /// 계정의 웹뷰 창을 가져온다. 없으면 만든다. (`for_login` 이면 보이는 로그인 창으로)
@@ -135,7 +135,7 @@ pub async fn refresh_account(app: &AppHandle, account: &Account) {
         FetchOutcome::Failed(message) => return set_error(&state, &account.id, message),
     }
 
-    // 플랜 다시 확인 (6시간마다, 앱을 켠 뒤 첫 조회에서도)
+    // 플랜과 이메일 다시 확인 (6시간마다, 앱을 켠 뒤 첫 조회와 로그인 직후에도)
     let plan_due = state
         .data(&account.id)
         .plan_checked_at
@@ -143,22 +143,33 @@ pub async fn refresh_account(app: &AppHandle, account: &Account) {
             now - checked_at >= chrono::Duration::hours(PLAN_CHECK_INTERVAL_HOURS)
         });
     if plan_due {
-        if let FetchOutcome::Json(value) = fetch(&window, "/api/organizations").await {
-            let organizations = claude::parse_organizations(&value);
-            let current = organizations
+        // 바뀐 값만 남긴다. 조직을 못 찾았거나 조회에 실패하면 None 이라 저장된 값을 그대로 둔다.
+        let plan = match fetch(&window, "/api/organizations").await {
+            FetchOutcome::Json(value) => claude::parse_organizations(&value)
                 .iter()
-                .find(|organization| organization.uuid == org_id);
-            if let Some(plan) = current.map(claude::plan_name)
-                && plan != account.plan
-                && let Ok(accounts) = state.update_accounts(|accounts| {
-                    if let Some(stored) = accounts.iter_mut().find(|stored| stored.id == account.id)
-                    {
-                        stored.plan = plan.clone();
+                .find(|organization| organization.uuid == org_id)
+                .map(claude::plan_name),
+            _ => None,
+        }
+        .filter(|plan| *plan != account.plan);
+        let email = match fetch(&window, "/api/account").await {
+            FetchOutcome::Json(value) => claude::parse_account_email(&value),
+            _ => None,
+        }
+        .filter(|email| account.email.as_ref() != Some(email));
+        if (plan.is_some() || email.is_some())
+            && let Ok(accounts) = state.update_accounts(|accounts| {
+                if let Some(stored) = accounts.iter_mut().find(|stored| stored.id == account.id) {
+                    if let Some(plan) = plan {
+                        stored.plan = plan;
                     }
-                })
-            {
-                refresh::emit_to_popover(app, "accounts-changed", &accounts);
-            }
+                    if email.is_some() {
+                        stored.email = email;
+                    }
+                }
+            })
+        {
+            refresh::emit_to_popover(app, "accounts-changed", &accounts);
         }
         state.update_data(&account.id, |data| data.plan_checked_at = Some(now));
     }
@@ -282,7 +293,9 @@ pub fn start_login(app: AppHandle, account_id: String) {
             let _ = window.navigate(url);
         }
         state.update_data(&account_id, |data| {
-            data.status = Some(AccountStatus::Loading)
+            data.status = Some(AccountStatus::Loading);
+            // 이 칸에 다른 claude.ai 계정으로 로그인했을 수 있으니, 바로 다음 조회에서 플랜·이메일도 다시 확인한다
+            data.plan_checked_at = None;
         });
         refresh::publish(&app);
         if let Some(account) = state

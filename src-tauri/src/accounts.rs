@@ -38,6 +38,10 @@ pub struct Account {
     /// 플랜 이름 (예: "Ultra", "Max", "Pro")
     #[serde(default)]
     pub plan: Option<String>,
+    /// 로그인한 claude.ai 계정 이메일. 카드에서 이름 옆에 흐리게 보여 준다.
+    /// (Codex 는 여기 두지 않고 조회할 때마다 로그인 파일에서 읽는다)
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 /// 다른 계정과 비슷해 보이지 않는 색. `preferred` 가 비어 있으면 그것, 아니면 목록에서 아직 안 쓴 첫 색.
@@ -90,6 +94,7 @@ impl Account {
             org_id: None,
             org_name: None,
             plan: None,
+            email: None,
         }
     }
 
@@ -109,6 +114,7 @@ impl Account {
             org_id: None,
             org_name: None,
             plan: None,
+            email: None,
         }
     }
 
